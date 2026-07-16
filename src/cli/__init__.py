@@ -1,0 +1,1 @@
+"""Paperfessor CLI subpackage."""

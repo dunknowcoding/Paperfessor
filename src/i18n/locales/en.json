@@ -1,0 +1,40 @@
+{
+  "app": {
+    "name": "Paperfessor",
+    "tagline": "Research direction to full project, end-to-end"
+  },
+  "direction": {
+    "placeholder": "e.g. Self-supervised learning for time-series anomaly detection in industrial IoT"
+  },
+  "tabs": {
+    "direction": "Direction",
+    "literature": "Literature",
+    "paper": "Paper",
+    "code": "Code",
+    "progress": "Progress",
+    "tokens": "Tokens",
+    "settings": "Settings",
+    "console": "Console"
+  },
+  "tokens": {
+    "title": "Token dashboard",
+    "aggregate": "Aggregate",
+    "by_group": "By agent (PhD / MS / UG)",
+    "by_role": "By role",
+    "col_prompt": "Prompt",
+    "col_completion": "Completion",
+    "col_total": "Total",
+    "col_calls": "Calls",
+    "reset_button": "Reset counters",
+    "last_call": "Last call: role={role} group={group} model={model} tokens={total}",
+    "last_call_idle": "No LLM calls yet."
+  },
+  "status": {
+    "ready": "Ready"
+  },
+  "common": {
+    "ok": "OK",
+    "cancel": "Cancel",
+    "apply": "Apply"
+  }
+}

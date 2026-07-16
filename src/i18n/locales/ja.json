@@ -1,0 +1,40 @@
+{
+  "app": {
+    "name": "Paperfessor",
+    "tagline": "研究方向から完成プロジェクトまで、エンドツーエンド"
+  },
+  "direction": {
+    "placeholder": "例：産業IoTの時系列異常検出のための自己教師あり学習"
+  },
+  "tabs": {
+    "direction": "方向",
+    "literature": "文献",
+    "paper": "論文",
+    "code": "コード",
+    "progress": "進捗",
+    "tokens": "トークン",
+    "settings": "設定",
+    "console": "コンソール"
+  },
+  "tokens": {
+    "title": "トークン ダッシュボード",
+    "aggregate": "合計",
+    "by_group": "エージェント別（博士/修士/学部）",
+    "by_role": "ロール別",
+    "col_prompt": "Prompt",
+    "col_completion": "Completion",
+    "col_total": "Total",
+    "col_calls": "Calls",
+    "reset_button": "リセット",
+    "last_call": "最終呼び出し：role={role} group={group} model={model} tokens={total}",
+    "last_call_idle": "呼び出しはまだありません。"
+  },
+  "status": {
+    "ready": "準備完了"
+  },
+  "common": {
+    "ok": "OK",
+    "cancel": "キャンセル",
+    "apply": "適用"
+  }
+}

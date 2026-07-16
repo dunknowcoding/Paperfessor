@@ -1,0 +1,94 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.conda/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checking / linting
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Paperfessor runtime — workspace holds live paper work (memos,
+# logs, runs, archived attempts). Recreated from ``src/workspace.py``
+# on demand; never commit the filled state.
+workspace/.cache/
+workspace/shared/research_log.md
+workspace/shared/code_log.md
+workspace/shared/research_guide.md
+workspace/shared/code_guide.md
+workspace/doc_memo.md
+workspace/article_memo.md
+workspace/memory.sqlite3
+workspace/archived/
+workspace/paper/body/
+workspace/paper/templates/
+workspace/src/datasets/
+workspace/src/papers/
+workspace/src/code/
+workspace/src/figures/
+workspace/src/results/
+workspace/src/tools/
+
+# Local user data — keys live in the OS keychain, never on disk.
+.paperfessor/
+data/
+*.pfdb
+*.pfsec
+
+# Private plans / internal docs — never published with the code.
+req.txt
+SOUL.md
+PROJECT_PLAN.md
+*.private.md
+notes/
+
+# Logs
+*.log
+logs/
+.test_loop.out.txt
+.test_loop.err.txt
+.test_loop_latest/
+.test_loop_prev/
+_e2e_log*.txt
+_trace*.log
+
+# Generated
+dist/
+build/
+output/

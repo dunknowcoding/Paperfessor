@@ -1,0 +1,40 @@
+{
+  "app": {
+    "name": "Paperfessor",
+    "tagline": "研究方向到完整项目，端到端"
+  },
+  "direction": {
+    "placeholder": "例如：面向工业物联网时序异常检测的自监督学习"
+  },
+  "tabs": {
+    "direction": "方向",
+    "literature": "文献",
+    "paper": "论文",
+    "code": "代码",
+    "progress": "进度",
+    "tokens": "Token",
+    "settings": "设置",
+    "console": "控制台"
+  },
+  "tokens": {
+    "title": "Token 仪表盘",
+    "aggregate": "汇总",
+    "by_group": "按智能体（博士/硕士/本科）",
+    "by_role": "按角色",
+    "col_prompt": "Prompt",
+    "col_completion": "Completion",
+    "col_total": "Total",
+    "col_calls": "Calls",
+    "reset_button": "清零",
+    "last_call": "最近调用：role={role} group={group} model={model} tokens={total}",
+    "last_call_idle": "暂无调用。"
+  },
+  "status": {
+    "ready": "就绪"
+  },
+  "common": {
+    "ok": "确定",
+    "cancel": "取消",
+    "apply": "应用"
+  }
+}
