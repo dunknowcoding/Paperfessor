@@ -357,11 +357,18 @@ def rows_to_markdown(rows: list[MetricRow]) -> str:
         "| Dataset | Method | F1 | Precision | Recall | AUROC | AUPRC |",
         "|---|---|---|---|---|---|---|",
     ]
+    # Best F1 per dataset gets bolded (published-paper convention).
+    best_f1: dict[str, float] = {}
+    for r in rows:
+        if not r.error and not np.isnan(r.f1_mean):
+            best_f1[r.dataset] = max(best_f1.get(r.dataset, 0.0), r.f1_mean)
     for r in rows:
         if r.error:
             lines.append(f"| {r.dataset} | {r.method} | failed | - | - | - | - |")
             continue
         f1 = f"{r.f1_mean:.3f}" + (f" ± {r.f1_ci:.3f}" if r.f1_ci > 0 else "")
+        if best_f1.get(r.dataset) == r.f1_mean:
+            f1 = f"**{f1}**"
         roc = f"{r.auroc_mean:.3f}" + (f" ± {r.auroc_ci:.3f}" if r.auroc_ci > 0 else "")
         lines.append(
             f"| {r.dataset} | {r.method} | {f1} | {r.precision_mean:.3f} "
@@ -448,7 +455,9 @@ def plot_dataset_sample(dataset_dir: Path, out_path: Path,
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     n_ch = min(3, seg_x.shape[1])
-    fig, axes = plt.subplots(n_ch, 1, figsize=(7.0, 1.2 * n_ch + 0.8),
+    # 7 in wide with aspect >= 1.8 so the .tex writer promotes the
+    # figure to a two-column ``figure*`` slot (readable label sizes).
+    fig, axes = plt.subplots(n_ch, 1, figsize=(7.0, min(3.6, 1.0 * n_ch + 0.6)),
                              dpi=200, sharex=True, squeeze=False)
     t = np.arange(start, start + len(seg_x))
     for ci in range(n_ch):
@@ -467,7 +476,10 @@ def plot_dataset_sample(dataset_dir: Path, out_path: Path,
         ax.tick_params(labelsize=6)
         ax.spines[["top", "right"]].set_visible(False)
     axes[-1][0].set_xlabel("time index", fontsize=7)
-    fig.suptitle(f"{dataset_dir.name}: test segment with labeled anomalies (shaded)",
+    # Public dataset name only — the cache-dir name carries an
+    # internal content hash that must not appear in the paper.
+    public_name = dataset_dir.name.split("@", 1)[0]
+    fig.suptitle(f"{public_name}: test segment with labeled anomalies (shaded)",
                  fontsize=8)
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)

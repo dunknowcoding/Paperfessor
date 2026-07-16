@@ -30,9 +30,14 @@ logger = logging.getLogger(__name__)
 # ---- Preamble templates --------------------------------------------------
 
 
+# NOTE: \ccsdesc takes ONE mandatory argument. The earlier
+# ``\ccsdesc{}{...}`` form printed the concept as body text BEFORE
+# \maketitle, which silently broke acmart's topmatter (no title, no
+# abstract on page 1). Verified against acmart 2.18 on 2026-07-16.
 NEURIPS_PREAMBLE_TEMPLATE = r"""\documentclass[sigconf,nonatbib]{acmart}
-\settopmatter{printacmref=true, printccs=true, printfolios=true}
+\settopmatter{printacmref=false, printccs=true, printfolios=true}
 \setcopyright{none}
+\usepackage{balance}
 \begin{document}
 \title{%s}
 \author{Paperfessor Agent Group}
@@ -41,9 +46,13 @@ NEURIPS_PREAMBLE_TEMPLATE = r"""\documentclass[sigconf,nonatbib]{acmart}
 \begin{abstract}
 %s
 \end{abstract}
-\ccsdesc{}{Computing methodologies~Machine learning}
+\ccsdesc[500]{Computing methodologies~Machine learning}
 \keywords{anomaly detection, self-supervised learning, time series, contrastive learning}
 \maketitle
+%% Overfull-line protection: long identifiers (dataset names, code
+%% spans) must never cross the column edge.
+\sloppy
+\emergencystretch=3em
 """
 
 # Backwards-compat alias: existing code may import the old name.
@@ -256,13 +265,16 @@ def _md_inline_to_tex(s: str) -> str:
     """
     # Common Unicode -> LaTeX translations. The LLM often emits
     # ≥/≤/≠/×/—/–; acmart's defaults don't include them.
-    s = s.replace("\u2265", r"\geq{}")
-    s = s.replace("\u2264", r"\leq{}")
-    s = s.replace("\u2260", r"\neq{}")
-    s = s.replace("\u00d7", r"\times{}")
+    # Math-only commands must be wrapped in $...$ \u2014 bare \pm / \geq
+    # in text mode force LaTeX into math mode and swallow the
+    # following spaces (observed: caption "\u00b195%CIover3seeds").
+    s = s.replace("\u2265", r"$\geq$")
+    s = s.replace("\u2264", r"$\leq$")
+    s = s.replace("\u2260", r"$\neq$")
+    s = s.replace("\u00d7", r"$\times$")
     s = s.replace("\u2014", "---")
     s = s.replace("\u2013", "--")
-    s = s.replace("\u00b1", r"\pm{}")
+    s = s.replace("\u00b1", r"$\pm$")
     s = s.replace("\u2026", r"\ldots{}")
     # Preserve inline math $...$ so the inner $ is not escaped.
     math_segments: list[str] = []
@@ -295,7 +307,28 @@ def _md_inline_to_tex(s: str) -> str:
     return s
 
 
-def md_to_tex_body(md: str) -> tuple[str, str]:
+def _image_is_wide(img_path: str, base_dir: Path | None = None) -> bool:
+    """Column-span judgement for a figure: True when the image's
+    aspect ratio (w/h) is >= 1.8, i.e. it would be unreadably small
+    in a single column and should span both (``figure*``).
+    Unresolvable images default to single-column."""
+    candidates = [Path(img_path)]
+    if base_dir is not None:
+        candidates.append(Path(base_dir) / img_path)
+    for p in candidates:
+        if not p.is_file():
+            continue
+        try:
+            from PIL import Image
+            with Image.open(p) as im:
+                w, h = im.size
+            return h > 0 and (w / h) >= 1.8
+        except Exception:  # noqa: BLE001
+            return False
+    return False
+
+
+def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
     """Convert a markdown paper body to a (title, latex_body) pair.
 
     The body is everything between the top heading and the references
@@ -397,17 +430,24 @@ def md_to_tex_body(md: str) -> tuple[str, str]:
             body_lines.append(r"\section*{%s}" % _md_inline_to_tex(line[3:].strip()))
             body_lines.append("")
             continue
-        # Markdown image: ![caption](path) -> \begin{figure}...\includegraphics
+        # Markdown image: ![caption](path) -> figure or figure*.
+        # Column-span judgement (per spec: large diagrams span both
+        # columns): wide images (aspect ratio >= 1.8) go into
+        # ``figure*`` at full text width so they stay readable; the
+        # rest stay single-column.
         m_img = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$", line)
         if m_img:
             flush_list()
             caption = _md_inline_to_tex(m_img.group(1).strip())
             img_path = m_img.group(2).strip()
-            body_lines.append(r"\begin{figure}[t]")
+            wide_fig = _image_is_wide(img_path, base_dir)
+            fig_env = "figure*" if wide_fig else "figure"
+            fig_width = r"0.85\textwidth" if wide_fig else r"0.9\linewidth"
+            body_lines.append(rf"\begin{{{fig_env}}}[t]")
             body_lines.append(r"  \centering")
-            body_lines.append(rf"  \includegraphics[width=0.9\linewidth]{{{img_path}}}")
+            body_lines.append(rf"  \includegraphics[width={fig_width}]{{{img_path}}}")
             body_lines.append(rf"  \caption{{{caption}}}")
-            body_lines.append(r"\end{figure}")
+            body_lines.append(rf"\end{{{fig_env}}}")
             body_lines.append("")
             continue
         # Markdown table: lines starting with `|` and the next line is
@@ -541,7 +581,7 @@ def write_tex(
     """
     body_dir = Path(body_dir)
     body_dir.mkdir(parents=True, exist_ok=True)
-    title, body = md_to_tex_body(paper_md)
+    title, body = md_to_tex_body(paper_md, base_dir=body_dir)
     refs = md_extract_refs(paper_md)
     # Page-limit enforcement: if the body is large, split to appendix.
     body, appendix_md, was_split = _enforce_page_limit(paper_md, body, page_limit)
@@ -569,6 +609,10 @@ def write_tex(
         tex += "\n\\appendix\n"
         tex += appendix_tex
     if refs:
+        # Balance the two columns on the final page (avoids a long
+        # left column next to an empty right one).
+        if class_name == "acmart-sigconf":
+            tex += "\n\\balance\n"
         tex += "\n\\begin{thebibliography}{99}\n"
         for i, r in enumerate(refs, 1):
             entry = re.sub(r"\*([^*]+)\*", r"\\emph{\1}", r)

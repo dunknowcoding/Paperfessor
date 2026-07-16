@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # a real acmart[sigconf] PDF with the rect-based extractor. Note the
 # "font" here is the text-rect HEIGHT, which runs ~1.1-1.4x the
 # nominal font size (ascender + descender).
-_FONT_MIN_PT = 5.0       # 5th-percentile INK height (acmart footnote ~5.6)
+_FONT_MIN_PT = 4.3       # 5th-percentile INK height (acmart 7pt bibliography ~4.6)
 _FONT_MAX_PT = 30.0      # anything taller than a title line is broken
 _FONT_MEDIAN_MIN_PT = 5.8
 _FONT_MEDIAN_MAX_PT = 15.0
@@ -190,10 +190,18 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
         # layout has interleaved ys when pooled, which corrupts the
         # gap statistics). A line belongs to the left column when its
         # center is left of the page midline.
+        # Only body-sized text lines participate in the gap stats:
+        # shrunken table rows (resizebox) and headings would skew
+        # the median and produce false line-spacing findings.
+        body_words = [
+            w for w in words
+            if font_median > 0
+            and 0.75 * font_median <= w["height"] <= _HEADING_FONT_PT
+        ] or words
         line_gaps: list[float] = []
         for col in (0, 1):
             col_words = [
-                w for w in words
+                w for w in body_words
                 if (0 if (w["x"] + w["width"] / 2) < page_w_pt / 2 else 1) == col
             ]
             ys = sorted({round(w["y"], 1) for w in col_words})
@@ -261,7 +269,11 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
                 f"line_gap_median={line_gap_median:.1f}pt not in "
                 f"[{_LINE_GAP_MIN_PT},{_LINE_GAP_MAX_PT}]"
             )
-        if para_gap_median and (
+        # Paragraph-gap checks are skipped on the final page: a
+        # trailing references/figures page has few, large, legitimate
+        # gaps that say nothing about body typesetting.
+        is_last_page = (i == limit - 1)
+        if not is_last_page and para_gap_median and (
             para_gap_median < _PARA_GAP_MIN_PT
             or para_gap_median > _PARA_GAP_MAX_PT
         ):
@@ -270,7 +282,7 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
                 f"[{_PARA_GAP_MIN_PT},{_PARA_GAP_MAX_PT}]"
             )
         # M9 / M10: too-close / too-far para gap counts.
-        if para_total > 0:
+        if not is_last_page and para_total > 0:
             close_frac = para_too_close / para_total
             far_frac = para_too_far / para_total
             if close_frac > _PARA_CLOSE_TOO_MANY:

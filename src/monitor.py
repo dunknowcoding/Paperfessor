@@ -100,8 +100,12 @@ class Supervisor:
             if now - last_check >= ACTIVE_TIMEOUT_SECONDS:
                 self._last_idle_check[name] = now
                 if self.on_worker_idle is not None:
+                    # ``mtime`` is wall-clock epoch — compare against
+                    # time.time(), never time.monotonic() (mixing the
+                    # two produced negative idle durations).
+                    idle_s = max(0.0, time.time() - mtime)
                     try:
-                        self.on_worker_idle(name, now - mtime)
+                        self.on_worker_idle(name, idle_s)
                     except Exception:  # noqa: BLE001
                         logger.exception("on_worker_idle raised; continuing")
 
