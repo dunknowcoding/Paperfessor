@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Iterable
 
 import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_c
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +227,19 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
         para_total = len(para_gaps)
         word_area = sum(w["width"] * w["height"] for w in words)
         page_area = page_w_pt * page_h_pt
-        density = word_area / max(1.0, page_area)
+        # Figures count toward density too: a page dominated by two
+        # charts is full, not "mostly empty". Image object areas come
+        # from the page's object list (best-effort; failures ignore
+        # images rather than failing the page).
+        image_area = 0.0
+        try:
+            for obj in page.get_objects(max_depth=4):
+                if getattr(obj, "type", None) == pdfium_c.FPDF_PAGEOBJ_IMAGE:
+                    left, bottom, right, top = obj.get_bounds()
+                    image_area += max(0.0, right - left) * max(0.0, top - bottom)
+        except Exception:  # noqa: BLE001
+            pass
+        density = (word_area + min(image_area, page_area)) / max(1.0, page_area)
         margin_violations = 0
         for w in words:
             x, y, wd, ht = w["x"], w["y"], w["width"], w["height"]

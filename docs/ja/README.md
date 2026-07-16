@@ -1,15 +1,22 @@
 <div align="center">
 
-<img src="../../assets/paperfessor.png" alt="Paperfessor — ミーアキャット教授" width="180"/>
-
-# Paperfessor
+<h1>
+  <img src="../../assets/Prof_Meerk.png" width="88" alt="Prof. Meerk — Paperfessor のマスコット" valign="middle"/>
+  &nbsp;Paperfessor
+</h1>
 
 **研究方向を 1 行入力すると、サーベイ・実実験・学会フォーマットの論文が出てくる。**
+
+*Meerk 教授が監修 — あなたの研究をいつでも見守っています。*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-2E5E4E.svg)](../../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-33475B.svg)](../../pyproject.toml)
 
 [English](../../README.md) · [简体中文](../zh-CN/README.md) · [日本語](README.md)
+
+<img src="../../assets/Meerk_studio.png" alt="Meerk 教授のスタジオ：PhD エージェントが構想と論文、Master エージェントが文献レビュー、コーダーエージェントが実験を担当" width="92%"/>
+
+*Meerk 教授のスタジオ — 好奇心 + 知識の共有 + 絶え間ない反復 = 本物のインパクト。*
 
 </div>
 
@@ -115,5 +122,5 @@ Paperfessor の利用は、上記条件と [MIT ライセンス](../../LICENSE) 
 
 ## ライセンス
 
-[MIT](../../LICENSE)。マスコット画像（`assets/paperfessor.png`）は本
-リポジトリの一部で、CC-BY-4.0 です。
+[MIT](../../LICENSE)。Meerk 教授のマスコット（`assets/Prof_Meerk.png`）は
+本リポジトリのブランディングの一部です。

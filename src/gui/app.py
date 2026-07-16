@@ -18,10 +18,11 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
     QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar, QPushButton,
-    QSpinBox, QTabWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from src._meta import __version__
@@ -262,6 +263,74 @@ class _TokensTab(_Tab):
             note.setText(f"{calls} calls")
 
 
+class _PaperTab(_Tab):
+    """Renders the generated paper PDF page by page (pypdfium2).
+
+    Falls back to showing ``paper.md`` as text when no PDF exists.
+    """
+
+    def _build(self) -> None:
+        layout = QVBoxLayout(self)
+        bar = QHBoxLayout()
+        self._path_label = QLabel("(no paper loaded)")
+        self._path_label.setObjectName("muted")
+        self._refresh = QPushButton("Reload paper")
+        self._refresh.clicked.connect(self.reload)
+        bar.addWidget(self._path_label, 1)
+        bar.addWidget(self._refresh)
+        layout.addLayout(bar)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._pages_holder = QWidget()
+        self._pages_layout = QVBoxLayout(self._pages_holder)
+        self._pages_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self._scroll.setWidget(self._pages_holder)
+        layout.addWidget(self._scroll, 1)
+
+    def _clear(self) -> None:
+        while self._pages_layout.count():
+            item = self._pages_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+    def reload(self) -> None:
+        from src.workspace import workspace_dir
+        body = workspace_dir() / "paper" / "body"
+        pdf = body / "paper.pdf"
+        md = body / "paper.md"
+        self._clear()
+        if pdf.is_file():
+            self._path_label.setText(str(pdf))
+            try:
+                import pypdfium2 as pdfium
+                doc = pdfium.PdfDocument(str(pdf))
+                for i in range(len(doc)):
+                    pil = doc[i].render(scale=1.5).to_pil()
+                    img = QImage(
+                        pil.tobytes("raw", "RGB"), pil.width, pil.height,
+                        pil.width * 3, QImage.Format.Format_RGB888,
+                    )
+                    page_label = QLabel()
+                    page_label.setPixmap(QPixmap.fromImage(img))
+                    page_label.setStyleSheet(
+                        "background: white; border: 1px solid #888; margin: 6px;"
+                    )
+                    self._pages_layout.addWidget(page_label)
+                doc.close()
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("PDF render failed: %s", exc)
+        if md.is_file():
+            self._path_label.setText(str(md))
+            viewer = QPlainTextEdit()
+            viewer.setReadOnly(True)
+            viewer.setPlainText(md.read_text(encoding="utf-8"))
+            self._pages_layout.addWidget(viewer)
+        else:
+            self._path_label.setText("(no paper yet — run a direction first)")
+
+
 class _ProgressTab(_Tab):
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -297,32 +366,42 @@ class _PaperfessorWindow(QMainWindow):
         self.settings_tab = _SettingsTab()
         self.console_tab = _ConsoleTab()
         self.progress_tab = _ProgressTab()
+        self.paper_tab = _PaperTab()
 
         self._tab_indices: dict[str, int] = {}
-        for key, widget in (
-            ("direction", self.direction_tab),
-            ("tokens", self.tokens_tab),
-            ("progress", self.progress_tab),
-            ("console", self.console_tab),
-            ("settings", self.settings_tab),
+        for key, widget, label in (
+            ("direction", self.direction_tab, t("tabs.direction")),
+            ("paper", self.paper_tab, "Paper"),
+            ("tokens", self.tokens_tab, t("tabs.tokens")),
+            ("progress", self.progress_tab, t("tabs.progress")),
+            ("console", self.console_tab, t("tabs.console")),
+            ("settings", self.settings_tab, t("tabs.settings")),
         ):
-            self._tab_indices[key] = self.tabs.addTab(widget, t(f"tabs.{key}"))
+            self._tab_indices[key] = self.tabs.addTab(widget, label)
 
         self.direction_tab.on_start = self._on_start
         self.settings_tab.on_apply = self._on_settings_applied
 
-        # 500ms polling for the token dashboard.
+        # Cross-thread handoff: the pipeline runs in a worker thread
+        # and posts (kind, payload) events here; the 500ms timer
+        # drains them on the GUI thread (Qt widgets are not
+        # thread-safe).
+        import queue
+        self._events: "queue.Queue[tuple[str, str]]" = queue.Queue()
+        self._run_thread: Any = None
+
+        # 500ms polling: token dashboard + worker-thread events.
         self._timer = QTimer(self)
         self._timer.setInterval(500)
-        self._timer.timeout.connect(self._refresh_tokens)
+        self._timer.timeout.connect(self._tick)
         self._timer.start()
 
-        # Wire router observer (in case a run is in flight).
-        try:
-            from src.llm.router import get_default_router
-            get_default_router().add_usage_observer(self._on_usage_event)
-        except Exception:  # noqa: BLE001
-            pass
+        # Show the last run's paper (if any) on startup.
+        self.paper_tab.reload()
+
+    def _tick(self) -> None:
+        self._refresh_tokens()
+        self._drain_events()
 
     def _refresh_tokens(self) -> None:
         try:
@@ -332,43 +411,56 @@ class _PaperfessorWindow(QMainWindow):
             return
         self.tokens_tab.apply_snapshot(snap)
 
-    def _on_usage_event(self, event: dict[str, Any]) -> None:
-        self.tokens_tab.apply_snapshot(
-            get_default_router().usage_snapshot()
-            if False else self.tokens_tab
-        )
+    def _drain_events(self) -> None:
+        while True:
+            try:
+                kind, payload = self._events.get_nowait()
+            except Exception:  # noqa: BLE001
+                break
+            if kind == "log":
+                self.progress_tab.log(payload)
+                self.console_tab.log(payload)
+            elif kind == "done":
+                self.progress_tab.log(payload)
+                self.console_tab.log(payload)
+                self.paper_tab.reload()
+                self.tabs.setCurrentIndex(self._tab_indices["paper"])
+                self._run_thread = None
 
     def _on_start(self) -> None:
         direction = self.direction_tab.get_direction()
         if not direction:
             return
+        if self._run_thread is not None and self._run_thread.is_alive():
+            self.console_tab.log("a run is already in progress")
+            return
         self.tabs.setCurrentIndex(self._tab_indices["progress"])
         self.progress_tab.log(f"starting run for: {direction}")
         self.console_tab.log(f"starting run: {direction}")
-        # Build a PhD + MS + UG, kick off the pipeline.
-        from src.agents.master import MasterStudent
-        from src.agents.phd import PhDStudent
-        from src.agents.undergrad import Undergraduate
-        from src.llm.router import get_default_router
-        from src.runner.pipeline import run as pipeline_run
-        from src.workspace import workspace_dir
 
-        router = get_default_router()
-        router._settings = self._settings  # type: ignore[attr-defined]
-        workspace = workspace_dir()
-        phd = PhDStudent(self._settings, router, workspace)
-        ms = MasterStudent(self._settings, router, workspace)
-        ug = Undergraduate(self._settings, router, workspace)
-        # In a full implementation this would run in a background QThread.
-        # For now, drive the pipeline synchronously to keep the example
-        # small; the supervisor is started inside ``pipeline.run``.
-        try:
-            result = pipeline_run(direction, settings=self._settings, router=router)
-            self.progress_tab.log(f"run finished: {result.status}")
-            self.console_tab.log(f"run finished: {result.status} ({result.note or '-'})")
-        except Exception as exc:  # noqa: BLE001
-            self.progress_tab.log(f"ERROR: {exc}")
-            self.console_tab.log(f"ERROR: {exc}")
+        import threading
+
+        settings = self._settings
+
+        def _worker() -> None:
+            try:
+                from src.llm.router import get_default_router
+                from src.runner.pipeline import run as pipeline_run
+                router = get_default_router()
+                router._settings = settings  # type: ignore[attr-defined]
+                result = pipeline_run(direction, settings=settings, router=router)
+                self._events.put((
+                    "done",
+                    f"run finished: {result.status} ({result.note or 'no issues'}); "
+                    f"paper: {result.paper_path or '-'}",
+                ))
+            except Exception as exc:  # noqa: BLE001
+                self._events.put(("done", f"ERROR: {exc}"))
+
+        self._run_thread = threading.Thread(
+            target=_worker, name="paperfessor-gui-run", daemon=True
+        )
+        self._run_thread.start()
 
     def _on_settings_applied(self, new_settings: Settings) -> None:
         self._settings = new_settings

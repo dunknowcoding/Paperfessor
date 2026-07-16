@@ -89,6 +89,9 @@ class RunReadiness:
     code_fallback: bool
     placeholder_metric: bool
     visual_ok: bool | None = None
+    # True when the final artifact should have been a PDF but is not
+    # (pdflatex failed). Checked only in the end-of-run assessment.
+    pdf_missing: bool = False
 
     @property
     def force_provisional_write(self) -> bool:
@@ -106,6 +109,8 @@ class RunReadiness:
             out.append("UG output still contains placeholder metrics")
         if self.visual_ok is False:
             out.append("Article 19 visual inspection did not pass")
+        if self.pdf_missing:
+            out.append("no rendered PDF (pdflatex failed; .md/.tex only)")
         return out
 
 
@@ -984,7 +989,7 @@ def _phase_write(
     sections: list[tuple[str, str]] = []
     for section_id, title, user_prompt, max_tokens in [
         ("abstract", "Abstract", _abstract_prompt(direction, method, evidence, phd.workspace), 600),
-        ("intro", "1. Introduction", _intro_prompt(direction, method, evidence), 900),
+        ("intro", "1. Introduction", _intro_prompt(direction, method, evidence, phd.workspace), 900),
         ("related", "2. Related Work", _related_prompt(direction, method, evidence), 1000),
         ("method", "3. Method", _method_prompt(direction, method, evidence, phd.workspace), 1300),
         ("experiments", "4. Experimental Setup", _experiments_prompt(direction, method, evidence, phd.workspace), 2400),
@@ -1040,6 +1045,47 @@ def _phase_write(
             other_check="heading in proper Markdown; no local paths leaked",
         )
 
+    # Generate + place figures INSIDE their sections (block diagram
+    # in Method; results chart + raw-data sample in Experimental
+    # Setup). Appending them after the Conclusion produced sparse
+    # float-graveyard final pages.
+    import shutil as _sh
+    paper_figures_dir = phd._workspace / "paper" / "body" / "figures"
+    paper_figures_dir.mkdir(parents=True, exist_ok=True)
+    results = _load_run_results(phd.workspace)
+    try:
+        from src.research.figures import generate_block_diagram
+        fig_path = phd._workspace / "src" / "figures" / "block_diagram.png"
+        # Real dataset names from the experiment manifests — NOT the
+        # survey paper titles (that bug crammed full titles into the
+        # diagram and made it unreadable).
+        ds_names = list((results or {}).get("manifests", {}).keys()) or ["(pending)"]
+        generate_block_diagram(
+            method=method, direction=direction,
+            out_path=fig_path, datasets=ds_names,
+        )
+        _sh.copy(fig_path, paper_figures_dir / "block_diagram.png")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("block diagram generation failed: %s", exc)
+    section_figures: dict[str, list[str]] = {"3. Method": [], "4. Experimental Setup": []}
+    if (paper_figures_dir / "block_diagram.png").is_file():
+        section_figures["3. Method"].append(
+            "![Block diagram of the proposed method architecture.]"
+            "(figures/block_diagram.png)"
+        )
+    for fname, caption, section in (
+        ("results_f1.png",
+         "Best F1 per dataset and method (mean ± 95% CI over 3 seeds).",
+         "4. Experimental Setup"),
+        ("dataset_sample.png",
+         "A real test segment with labeled anomaly regions shaded.",
+         "4. Experimental Setup"),
+    ):
+        src_fig = phd._workspace / "src" / "figures" / fname
+        if src_fig.is_file():
+            _sh.copy(src_fig, paper_figures_dir / fname)
+            section_figures[section].append(f"![{caption}](figures/{fname})")
+
     # Assemble the paper. Run metadata (direction / method /
     # timestamp) lives in doc_memo and the archive — NOT in the
     # paper body, where it would leak project-internal info.
@@ -1052,71 +1098,14 @@ def _phase_write(
         parts.append("")
         parts.append(body)
         parts.append("")
-    # Block diagram (per req.txt 2: "多利用框图"). Generated here
-    # (after the per-section write) so the figure is in the
-    # workspace and the paper.md can reference it. The image path
-    # is workspace-relative (not absolute) so the paper does not
-    # leak local paths.
-    try:
-        from src.research.figures import generate_block_diagram
-        figures_dir = phd._workspace / "src" / "figures"
-        fig_path = figures_dir / "block_diagram.png"
-        # The datasets list comes from the survey's evidence.
-        ds_for_fig = list({
-            ev.paper.title for ev in evidence
-        })[:3] or ["PSM", "MSL", "SMAP"]
-        generate_block_diagram(
-            method=method, direction=direction,
-            out_path=fig_path, datasets=ds_for_fig,
-        )
-        # Also copy the figure into the paper body so the .tex can
-        # reference it via a relative path that does NOT leak the
-        # absolute workspace root. The path inside the .tex is
-        # `figures/block_diagram.png`.
-        import shutil
-        paper_figures_dir = phd._workspace / "paper" / "body" / "figures"
-        paper_figures_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy(fig_path, paper_figures_dir / "block_diagram.png")
-        # Insert a figure reference paragraph into the Method
-        # section. We do it post-hoc by rewriting the assembly.
-        parts.append("## Method Block Diagram")
-        parts.append("")
-        parts.append(
-            "![Block diagram of the proposed method architecture.]"
-            f"(figures/block_diagram.png)"
-        )
-        # NOTE: pdflatex runs from workspace/paper/body/, so the
-        # image path is `figures/block_diagram.png`. The figure
-        # file is copied into the same dir so pdflatex can resolve
-        # the path without TEXINPUTS.
-        parts.append("")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("block diagram generation failed: %s", exc)
-    # Real experimental figures (results bar chart + raw-data sample),
-    # copied from workspace/src/figures/ into paper/body/figures/.
-    try:
-        import shutil as _sh
-        paper_figures_dir = phd._workspace / "paper" / "body" / "figures"
-        paper_figures_dir.mkdir(parents=True, exist_ok=True)
-        exp_figs: list[tuple[str, str]] = []
-        for fname, caption in (
-            ("results_f1.png",
-             "Best F1 per dataset and method (mean ± 95% CI over 3 seeds)."),
-            ("dataset_sample.png",
-             "A real test segment with labeled anomaly regions shaded."),
-        ):
-            src_fig = phd._workspace / "src" / "figures" / fname
-            if src_fig.is_file():
-                _sh.copy(src_fig, paper_figures_dir / fname)
-                exp_figs.append((fname, caption))
-        if exp_figs:
-            parts.append("## Experimental Figures")
+        for fig_md in section_figures.get(title, ()):
+            parts.append(fig_md)
             parts.append("")
-            for fname, caption in exp_figs:
-                parts.append(f"![{caption}](figures/{fname})")
-                parts.append("")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("experimental figure embedding failed: %s", exc)
+    # NOTE: figure embedding happens BEFORE this assembly loop — see
+    # the section-body augmentation above, which places each figure
+    # inside its own section (block diagram in Method, results +
+    # data-sample figures in Experimental Setup). Appending figures
+    # after the Conclusion produced float-graveyard final pages.
     parts.append("## References")
     parts.append("")
     # References: cite every paper we read, by short cite. The BibTeX
@@ -1274,7 +1263,7 @@ def _phase_write(
             ),
             style_check="no AI phrasing; no local paths leaked",
             references_check=(
-                f"all {sum(1 for _ in range(5))} refs from survey corpus"
+                f"{ref_count} references (survey corpus + verified canonical top-ups)"
             ),
             figure_check="no figures yet (UG phase will add)",
             table_check="no tables yet (UG phase will add)",
@@ -1557,13 +1546,21 @@ def _abstract_prompt(direction: str, method: str, evidence: list[Evidence],
     )
 
 
-def _intro_prompt(direction: str, method: str, evidence: list[Evidence]) -> str:
+def _intro_prompt(direction: str, method: str, evidence: list[Evidence],
+                  workspace: Path | None = None) -> str:
+    headline = _results_headline(workspace)
     return (
         f"Write the Introduction (1-2 paragraphs) of a top-venue paper. "
         f"Frame the problem (direction={direction!r}), the gap in prior work "
         f"(use the survey evidence below; do not invent citations), and the "
         f"contribution of method={method!r}. End with a 3-bullet list of "
         f"concrete contributions. Dense, declarative. No filler.\n\n"
+        f"HONESTY CONSTRAINT: the experiments compared ONLY against PCA "
+        f"reconstruction, IsolationForest, and kNN distance. NEVER claim the "
+        f"method was 'shown to outperform' any OTHER method (deep baselines "
+        f"from the survey may be discussed as related work, but no victory "
+        f"over them may be claimed — they were not run).\n\n"
+        f"{headline}\n\n"
         f"Survey evidence (real):\n"
         + "\n".join(f"- {ev.paper.short_cite()}: {ev.summary or '(no summary)'}"
                      for ev in evidence[:8])
@@ -2000,6 +1997,7 @@ def _assess_run_readiness(workspace: Path, paper_path: Path | None) -> RunReadin
     )
     placeholder_metric = "PLACEHOLDER" in code_log
     visual_ok: bool | None = None
+    pdf_missing = False
     if paper_path is not None and paper_path.is_file() and paper_path.suffix.lower() == ".pdf":
         try:
             from src.research.visual_inspect import inspect_pdf
@@ -2007,12 +2005,17 @@ def _assess_run_readiness(workspace: Path, paper_path: Path | None) -> RunReadin
             visual_ok = bool(checks) and all(c.passed for c in checks)
         except Exception:  # noqa: BLE001
             visual_ok = False
+    elif paper_path is not None:
+        # A non-PDF final artifact means the LaTeX build failed. The
+        # run must not pass just because there was nothing to inspect.
+        pdf_missing = True
     return RunReadiness(
         readable_papers=readable_papers,
         survey_blocked=survey_blocked,
         code_fallback=code_fallback,
         placeholder_metric=placeholder_metric,
         visual_ok=visual_ok,
+        pdf_missing=pdf_missing,
     )
 
 

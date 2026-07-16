@@ -60,3 +60,14 @@ def test_write_tex_no_percent_crash(tmp_path: Path):
     md = SAMPLE_MD.replace("measured number", "measured 95% number")
     tex_path = write_tex(md, tmp_path, class_name="acmart-sigconf")
     assert tex_path.is_file()
+
+
+def test_underscores_escaped_in_text_mode(tmp_path: Path):
+    # `x_i` in prose or inline code must never reach LaTeX raw —
+    # a bare _ in text mode kills the build (observed 2026-07-16).
+    md = SAMPLE_MD.replace(
+        "Body text with", "Per variable `x_i` and series x_t, body text with"
+    )
+    tex = write_tex(md, tmp_path, class_name="acmart-sigconf").read_text(encoding="utf-8")
+    assert "x_i" not in tex.replace("x\\_i", "")
+    assert "x\\_i" in tex and "x\\_t" in tex

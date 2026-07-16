@@ -21,6 +21,7 @@ which source produced it).
 from __future__ import annotations
 
 import dataclasses
+import os
 import re
 import time
 from typing import Iterable
@@ -29,7 +30,9 @@ from urllib.parse import quote
 import requests
 
 OA_BASE: str = "https://api.openalex.org"
-USER_AGENT: str = "Paperfessor/0.4 (research; mailto:research@paperfessor.local)"
+# Plain UA — a mailto is only attached when the user configures a
+# real contact address (PAPERFESSOR_CONTACT_EMAIL).
+USER_AGENT: str = "Paperfessor/1.0 (research)"
 _MAX_PER_PAGE: int = 50  # OpenAlex's hard cap
 
 
@@ -107,6 +110,12 @@ def search(
         ("per_page", str(per_page)),
         ("page", str(page)),
     ]
+    # OpenAlex "polite pool": a REAL contact email gets a larger rate
+    # budget. Only sent when the user configures one — sending a fake
+    # address would violate OpenAlex's politeness policy.
+    contact = os.environ.get("PAPERFESSOR_CONTACT_EMAIL", "").strip()
+    if contact and "@" in contact:
+        params.append(("mailto", contact))
     if filters:
         params.append(("filter", ",".join(filters)))
     if sort:

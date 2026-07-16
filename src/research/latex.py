@@ -203,28 +203,11 @@ def _escape(s: str) -> str:
                 j += 1
             i = j
             continue
-        # A `_` or `^` right after a `}`, an alnum, or another `_`/`^`
-        # is a LaTeX subscript/superscript operator. If it is
-        # followed by `{...}`, consume the brace group too.
-        if c in ("_", "^"):
-            prev = out[-1][-1] if out else ""
-            if prev in ("}", ")", "]", "\\") or prev.isalnum() or prev in ("_", "^"):
-                out.append(c)
-                i += 1
-                # If the subscript's body is `{...}`, copy that
-                # brace group as-is.
-                if i < len(s) and s[i] == "{":
-                    depth = 1
-                    k = i + 1
-                    while k < len(s) and depth > 0:
-                        if s[k] == "{":
-                            depth += 1
-                        elif s[k] == "}":
-                            depth -= 1
-                        k += 1
-                    out.append(s[i:k])
-                    i = k
-                continue
+        # NOTE: real inline math ($...$) is stashed before this pass,
+        # so any remaining `_` / `^` is TEXT-mode content and must be
+        # escaped unconditionally. (The old subscript heuristic left
+        # `x_i` raw and killed the pdflatex build: "Missing $ inserted"
+        # at \texttt{x_i}, observed 2026-07-16.)
         if c == "&":
             out.append(r"\&")
         elif c == "%":
@@ -729,10 +712,21 @@ def build_pdf(tex_path: Path, *, pdflatex_bin: str | None = None,
     if pdflatex_bin is None:
         pdflatex_bin = shutil.which("pdflatex")
     if not pdflatex_bin:
-        candidates = [
+        # Common install locations when pdflatex is not on PATH.
+        candidates: list[str] = [
+            # Windows (TeX Live / MiKTeX)
             r"H:\texlive\2026\bin\windows\pdflatex.exe",
             r"C:\texlive\2026\bin\windows\pdflatex.exe",
             r"C:\Program Files\texlive\2026\bin\windows\pdflatex.exe",
+            r"C:\Program Files\MiKTeX\miktex\bin\x64\pdflatex.exe",
+            # macOS (MacTeX)
+            "/Library/TeX/texbin/pdflatex",
+            "/usr/local/texlive/2026/bin/universal-darwin/pdflatex",
+            # Linux (TeX Live, distro or vanilla)
+            "/usr/bin/pdflatex",
+            "/usr/local/bin/pdflatex",
+            "/usr/local/texlive/2026/bin/x86_64-linux/pdflatex",
+            "/opt/texlive/2026/bin/x86_64-linux/pdflatex",
         ]
         for c in candidates:
             if Path(c).is_file():

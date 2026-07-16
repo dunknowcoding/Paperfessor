@@ -1,16 +1,23 @@
 <div align="center">
 
-<img src="assets/paperfessor.png" alt="Paperfessor — the meerkat professor" width="180"/>
-
-# Paperfessor
+<h1>
+  <img src="assets/Prof_Meerk.png" width="88" alt="Prof. Meerk — the Paperfessor mascot" valign="middle"/>
+  &nbsp;Paperfessor
+</h1>
 
 **A research direction goes in. A survey, real experiments, and a venue-formatted paper come out.**
+
+*Supervised by Prof. Meerk — always standing watch over your research.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-2E5E4E.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-33475B.svg)](pyproject.toml)
 [![Status](https://img.shields.io/badge/Status-Research%20Preview-B7412E.svg)](#responsible-use-and-disclaimer)
 
 [English](README.md) · [简体中文](docs/zh-CN/README.md) · [日本語](docs/ja/README.md)
+
+<img src="assets/Meerk_studio.png" alt="Prof. Meerk's studio: the PhD agent drafts ideas and the paper, the Master agent reviews articles, and the coder agent runs the experiments" width="92%"/>
+
+*Inside Prof. Meerk's studio — curious minds + shared knowledge + relentless iteration = real impact.*
 
 </div>
 
@@ -166,6 +173,6 @@ the [MIT license](LICENSE)'s no-warranty clause.
 
 ## License
 
-[MIT](LICENSE) — free for research and commercial use, no warranty. The
-mascot image (`assets/paperfessor.png`) is part of this repository and
-CC-BY-4.0.
+[MIT](LICENSE) — free for research and commercial use, no warranty.
+The Prof. Meerk mascot (`assets/Prof_Meerk.png`) is part of this
+repository's branding.
