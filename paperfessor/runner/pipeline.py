@@ -426,18 +426,32 @@ def _verify_ug_report(workspace: Path) -> dict[str, object]:
 
 
 def _measured_number_tokens(workspace: Path) -> set[str]:
-    """All legitimate 3-decimal metric tokens from results.json (plus
-    dataset ratios). Used to catch hallucinated metrics in prose."""
+    """All legitimate 3-decimal tokens derivable from results.json.
+
+    Includes the measured values themselves, dataset ratios, AND all
+    pairwise absolute differences between same-metric means — papers
+    legitimately write improvement gaps ("raising F1 by 0.026"), and
+    flagging those as hallucinations burned redraft cycles on
+    non-issues (observed in T12) while real errors survived.
+    """
     results = _load_run_results(workspace)
     tokens: set[str] = set()
     if not results:
         return tokens
+    per_metric: dict[str, list[float]] = {}
     for r in results.get("rows", []):
         for k in ("f1_mean", "f1_ci", "precision_mean", "recall_mean",
                   "auroc_mean", "auroc_ci", "auprc_mean"):
             v = r.get(k)
             if isinstance(v, (int, float)) and not (isinstance(v, float) and v != v):
                 tokens.add(f"{v:.3f}")
+                if k.endswith("_mean"):
+                    per_metric.setdefault(k, []).append(float(v))
+    # Legitimate derived deltas: |a - b| within the same metric.
+    for values in per_metric.values():
+        for i, a in enumerate(values):
+            for b in values[i + 1:]:
+                tokens.add(f"{abs(a - b):.3f}")
     for m in results.get("manifests", {}).values():
         v = m.get("anomaly_ratio_test")
         if isinstance(v, (int, float)):
@@ -2279,8 +2293,19 @@ def _llm_paper_review(
         return []
     out: list[str] = []
     for line in raw.splitlines():
-        line = line.strip().lstrip("-* ")
+        line = line.strip().lstrip("-*#0123456789. ")
         if not line or line.upper() == "NONE":
+            continue
+        low = line.lower()
+        # Parser hygiene: the reviewer sometimes emits preamble lines
+        # ("Scanning for defects:") and verdict lines for things it
+        # checked and found CORRECT — those are not defects.
+        if low.startswith(("scanning", "checking", "reviewing", "here are",
+                           "defects", "output")):
+            continue
+        if any(okw in low for okw in ("— correct", "- correct", "is correct",
+                                      "consistent with", "no issue",
+                                      "matches the", "verified correct")):
             continue
         if ":" in line and 10 < len(line) < 400:
             out.append(line)
