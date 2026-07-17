@@ -3864,17 +3864,48 @@ def _on_report(phd: PhDStudent, name: WorkerName, log_path: Path) -> None:
     )
 
 
+# Idle beyond this many seconds with tasks still active is a TIMEOUT:
+# the PhD re-dispatches the stale task (marked REDO) instead of only
+# noting the silence.
+_TASK_TIMEOUT_S: float = 300.0
+
+
 def _on_idle(phd: PhDStudent, name: WorkerName, idle_seconds: float) -> None:
     logger.info("worker %s idle for %.0fs", name.value, idle_seconds)
+    # Timeout handling: check the worker's task list; when a task has
+    # been active through a prolonged silence, the PhD re-posts it as
+    # a REDO so the worker cannot silently drop it — and the decision
+    # goes on the record.
+    redo_note = ""
+    if idle_seconds >= _TASK_TIMEOUT_S:
+        try:
+            guide_name = "research_guide.md" if name.value == "ms" else "code_guide.md"
+            guide_path = phd._workspace / "shared" / guide_name
+            tasks = phd._read_guide(guide_path)[0]
+            stale = next(
+                (t for t in tasks
+                 if not t.done and not t.voided
+                 and not t.text.startswith("REDO")), None)
+            if stale is not None:
+                stale.text = f"REDO (timeout after {int(idle_seconds)}s idle): {stale.text}"
+                if name.value == "ms":
+                    phd.update_research_guide(tasks)
+                else:
+                    phd.update_code_guide(tasks)
+                redo_note = f"; re-dispatched stale task as REDO: '{stale.text[:80]}'"
+        except Exception:  # noqa: BLE001
+            logger.exception("timeout re-dispatch failed; continuing")
     phd.append_doc_memo(
         user_request=f"worker {name.value} idle",
         method="(supervision)",
         stage="active-review",
-        ug_summary=f"{name.value} idle for {int(idle_seconds)}s" if name.value == "ug" else "(idle, not UG)",
-        ms_summary=f"{name.value} idle for {int(idle_seconds)}s" if name.value == "ms" else "(idle, not MS)",
-        interaction_ug=(f"UG has been idle {int(idle_seconds)}s — checking state" if name.value == "ug" else ""),
-        interaction_ms=(f"MS has been idle {int(idle_seconds)}s — checking state" if name.value == "ms" else ""),
-        stage_goal="active review of idle worker",
+        ug_summary=(f"{name.value} idle for {int(idle_seconds)}s{redo_note}"
+                    if name.value == "ug" else "(idle, not UG)"),
+        ms_summary=(f"{name.value} idle for {int(idle_seconds)}s{redo_note}"
+                    if name.value == "ms" else "(idle, not MS)"),
+        interaction_ug=(f"UG idle {int(idle_seconds)}s — status checked{redo_note}" if name.value == "ug" else ""),
+        interaction_ms=(f"MS idle {int(idle_seconds)}s — status checked{redo_note}" if name.value == "ms" else ""),
+        stage_goal="timeout supervision: silence never drops a task",
         stage_complete=True,
     )
 
