@@ -1697,7 +1697,27 @@ def _phase_write(
             )
             if not defects:
                 break
-            fixed_any = False
+            # Citation defects get RESOLVED (find the real work, add a
+            # verified reference) rather than redrafted — redrafting
+            # them just swaps one uncited famous work for another.
+            defects, refs_added = _resolve_missing_citations(
+                defects, md_now, reference_lines,
+            )
+            if refs_added:
+                phd.append_article_memo(
+                    direction=direction, method=method,
+                    progress=f"self-inspection round {inspect_round}: citation resolution",
+                    status=f"added {refs_added} verified references",
+                    references_check=f"{refs_added} body citations resolved to real entries",
+                )
+                paper_path.write_text(
+                    _reassemble_paper(method, sections, section_figures,
+                                      reference_lines),
+                    encoding="utf-8",
+                )
+                if not defects:
+                    continue
+            fixed_any = refs_added > 0
             new_sections: list[tuple[str, str]] = []
             for title, body in sections:
                 relevant = [
@@ -2246,6 +2266,77 @@ def _llm_paper_review(
     return out[:10]
 
 
+def _resolve_missing_citations(
+    defects: list[str], paper_md: str, reference_lines: list[str],
+) -> tuple[list[str], int]:
+    """Resolve 'body cites (X et al.) missing from References' defects
+    by FINDING the real work (arXiv, then OpenAlex for classic
+    non-arXiv papers) and appending a verified reference entry.
+
+    This is the converging actuator for citation defects: redrafting
+    made the LLM swap one uncited famous work for another (observed:
+    18 -> 15 -> 16 defects across rounds). Every added entry is
+    verified: the cited surname must be among the found paper's
+    authors and the year must match within +-1.
+
+    Returns (unresolved_defects, n_added).
+    """
+    unresolved: list[str] = []
+    added = 0
+    for d in defects:
+        m = re.match(r"body cites \(([A-Za-z\-']+) et al\.\)", d)
+        if not m:
+            unresolved.append(d)
+            continue
+        surname = m.group(1)
+        ctx = re.search(
+            rf"([^.\n]*\(\s*{re.escape(surname)} et al\.,?\s*(\d{{4}})\)[^.\n]*)",
+            paper_md,
+        )
+        year = int(ctx.group(2)) if ctx else 0
+        sentence = ctx.group(1) if ctx else ""
+        keywords = " ".join(
+            t for t in _informative_tokens(sentence)[:5]
+            if t.lower() != surname.lower()
+        )
+        entry: str | None = None
+        # Rung 1: arXiv.
+        try:
+            from paperfessor.research.sources.arxiv import search as _ax
+            for h in _ax(f"{surname} {keywords}", max_results=5):
+                if (any(surname.lower() == a.split()[-1].lower()
+                        for a in h.authors)
+                        and (year == 0 or abs(h.year - year) <= 1)):
+                    aid = h.arxiv_id.split("v", 1)[0]
+                    entry = (f"- {surname} et al. ({h.year}). *{h.title}*. "
+                             f"arXiv:{aid}. https://arxiv.org/abs/{aid}")
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        # Rung 2: OpenAlex (classic pre-arXiv papers: IsolationForest,
+        # Ramaswamy 2000, ...).
+        if entry is None:
+            try:
+                from paperfessor.research.sources import openalex as _oa
+                for h in _oa.search(f"{surname} {keywords}", limit=5):
+                    if (any(surname.lower() == a.split()[-1].lower()
+                            for a in h.authors)
+                            and (year == 0 or abs(h.year - year) <= 1)):
+                        link = h.doi or h.landing_page_url or ""
+                        entry = (f"- {surname} et al. ({h.year}). *{h.title}*. "
+                                 f"{h.venue or 'journal'}. {link}")
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+        if entry is None:
+            unresolved.append(d)
+            continue
+        if not any(entry.split("*")[1][:40] in l for l in reference_lines if "*" in l):
+            reference_lines.append(entry)
+            added += 1
+    return unresolved, added
+
+
 def _defect_targets_section(defect: str, title: str, body: str) -> bool:
     """Does this defect concern this section? Match by section-title
     prefix (LLM defects) or by offending token present in the body
@@ -2311,7 +2402,10 @@ def _section_system(section_id: str, direction: str, method: str) -> str:
         f"student', 'undergraduate', 'supervisor', 'agent', 'Paperfessor') "
         f"— published papers say 'we'. Cite ONLY as author-year in "
         f"parentheses, e.g. (Wu et al., 2024); never invent BibTeX keys "
-        f"like [xu2018unsupervised]. Write like a published top-venue "
+        f"like [xu2018unsupervised]. Every citation is VERIFIED against "
+        f"public indexes after you write: cite only works whose first "
+        f"author and year you know precisely — unverifiable citations "
+        f"are deleted from your text. Write like a published top-venue "
         f"paper: concrete nouns, measured numbers, no hedging filler. "
         f"Direction: {direction}. Proposed method: {method}."
     )

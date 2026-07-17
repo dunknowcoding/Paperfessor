@@ -124,6 +124,34 @@ def test_method_strategy_improve_then_abandon():
     assert mode == "new"
 
 
+def test_resolve_missing_citations_parses_and_skips_unmatchable(monkeypatch):
+    from paperfessor.runner import pipeline as pl
+
+    md = ("## 2. Related Work\n\nIsolation-based detection "
+          "(Liu et al., 2008) is a strong baseline.\n\n## References\n\n- x\n")
+    refs: list[str] = []
+
+    class _Hit:
+        authors = ("Fei Tony Liu", "Kai Ming Ting")
+        year = 2008
+        title = "Isolation Forest"
+        arxiv_id = "0000.00000"
+        doi = "https://doi.org/10.1109/ICDM.2008.17"
+        landing_page_url = ""
+        venue = "ICDM"
+
+    monkeypatch.setattr(
+        "paperfessor.research.sources.arxiv.search",
+        lambda q, max_results=5: [_Hit()],
+    )
+    defects = ["body cites (Liu et al.) but the References list has no such entry",
+               "number 0.999 does not match any measured value"]
+    unresolved, added = pl._resolve_missing_citations(defects, md, refs)
+    assert added == 1 and any("Isolation Forest" in r for r in refs)
+    # The non-citation defect passes through untouched.
+    assert unresolved == ["number 0.999 does not match any measured value"]
+
+
 def test_review_input_keeps_structure_and_references():
     from paperfessor.runner.pipeline import _review_input
     long_body = ("Lorem ipsum dolor sit amet. " * 40 + "\n\n") * 30
