@@ -171,8 +171,18 @@ def _abs_url_for(arxiv_id: str) -> str:
     return f"{ARXIV_ABS_BASE}{arxiv_id}"
 
 
+# arXiv's API terms ask for no more than one request every 3 seconds.
+# A process-wide throttle enforces that; 429s back off much harder
+# (the burst pattern of a full pipeline run otherwise trips arXiv's
+# rate limiter and poisons every later request for a long while).
+_ARXIV_MIN_GAP_S = 3.2
+_ARXIV_429_BACKOFF_S = 25.0
+_last_arxiv_request: list[float] = [0.0]
+_arxiv_lock = __import__("threading").Lock()
+
+
 def _http_get(url: str, *, timeout: float = 15.0, max_retries: int = 2) -> bytes:
-    """GET ``url`` with exponential backoff. Returns body bytes.
+    """GET ``url`` with politeness throttling and backoff.
 
     Uses :mod:`requests` (which is already a transitive dep via litellm
     and is verified to work on this machine) rather than
@@ -180,15 +190,28 @@ def _http_get(url: str, *, timeout: float = 15.0, max_retries: int = 2) -> bytes
     Windows.
     """
     last_exc: BaseException | None = None
-    headers = {"User-Agent": "Paperfessor/0.4 (research agent)"}
+    headers = {"User-Agent": "Paperfessor/1.0 (research agent)"}
     for attempt in range(max_retries):
+        # Politeness: at most one arXiv request per _ARXIV_MIN_GAP_S,
+        # process-wide.
+        with _arxiv_lock:
+            wait = _ARXIV_MIN_GAP_S - (time.monotonic() - _last_arxiv_request[0])
+            if wait > 0:
+                time.sleep(wait)
+            _last_arxiv_request[0] = time.monotonic()
         try:
             resp = requests.get(url, headers=headers, timeout=timeout)
             resp.raise_for_status()
             return resp.content
         except (requests.RequestException, requests.HTTPError) as exc:
             last_exc = exc
-            time.sleep(min(2 ** attempt, 3))
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status == 429:
+                # Hard backoff: hammering a rate-limited endpoint
+                # extends the lockout.
+                time.sleep(_ARXIV_429_BACKOFF_S)
+            else:
+                time.sleep(min(2 ** attempt, 3))
     raise ArxivError(f"GET {url} failed after {max_retries} attempts: {last_exc}")
 
 
