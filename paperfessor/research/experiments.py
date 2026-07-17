@@ -366,10 +366,15 @@ def rows_to_markdown(rows: list[MetricRow]) -> str:
         if r.error:
             lines.append(f"| {r.dataset} | {r.method} | failed | - | - | - | - |")
             continue
-        f1 = f"{r.f1_mean:.3f}" + (f" ± {r.f1_ci:.3f}" if r.f1_ci > 0 else "")
+        # Consistency contract with the Protocol text: any method run
+        # with multiple seeds prints its ± even when it is 0.000 —
+        # otherwise the table looks single-seed against the k = 3
+        # claim (flagged by the self-inspection reviewer in T14).
+        multi = r.n_seeds > 1
+        f1 = f"{r.f1_mean:.3f}" + (f" ± {r.f1_ci:.3f}" if multi else "")
         if best_f1.get(r.dataset) == r.f1_mean:
             f1 = f"**{f1}**"
-        roc = f"{r.auroc_mean:.3f}" + (f" ± {r.auroc_ci:.3f}" if r.auroc_ci > 0 else "")
+        roc = f"{r.auroc_mean:.3f}" + (f" ± {r.auroc_ci:.3f}" if multi else "")
         lines.append(
             f"| {r.dataset} | {r.method} | {f1} | {r.precision_mean:.3f} "
             f"| {r.recall_mean:.3f} | {roc} | {r.auprc_mean:.3f} |"

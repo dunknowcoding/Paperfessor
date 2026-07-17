@@ -1375,9 +1375,19 @@ def _phase_write(
     # ride along in the writer's system prompt as an avoid-list.
     lessons = _past_lessons(phd)
 
+    # Pinned facts travel with EVERY write and revision call — a
+    # revision that lacks them can re-introduce contradictions the
+    # original prompts prevented (observed: a round-3 redraft wrote
+    # a corpus count of 12 against Related Work's 18).
+    facts_block = (
+        f"\n\nPINNED FACTS (every section must agree with these exactly):\n"
+        f"- surveyed corpus size: EXACTLY {len(evidence)} papers\n"
+        f"- {_results_headline(phd.workspace) or 'no experiments were run: no numbers may be stated'}"
+    )
+
     def _writer_system(section_id: str) -> str:
         base = _section_system(section_id, direction, method)
-        return base + ("\n\n" + lessons if lessons else "")
+        return base + ("\n\n" + lessons if lessons else "") + facts_block
 
     sections: list[tuple[str, str]] = []
     for section_id, title, user_prompt, max_tokens in [
@@ -2406,6 +2416,26 @@ _CANONICAL_CITATIONS: dict[tuple[str, int], tuple[str, tuple[str, ...]]] = {
         "Multi-sensor Anomaly Detection*. arXiv:1607.00148. "
         "https://arxiv.org/abs/1607.00148",
         ("encoder-decoder", "lstm", "multi-sensor")),
+    # Software / tooling citations (papers legitimately cite the
+    # scientific stack they run on).
+    ("harris", 2020): (
+        "- Harris et al. (2020). *Array Programming with NumPy*. "
+        "Nature 585. https://doi.org/10.1038/s41586-020-2649-2",
+        ("numpy", "array")),
+    ("pedregosa", 2011): (
+        "- Pedregosa et al. (2011). *Scikit-learn: Machine Learning in "
+        "Python*. JMLR 12. https://jmlr.org/papers/v12/pedregosa11a.html",
+        ("scikit-learn", "sklearn")),
+    ("virtanen", 2020): (
+        "- Virtanen et al. (2020). *SciPy 1.0: Fundamental Algorithms for "
+        "Scientific Computing in Python*. Nature Methods 17. "
+        "https://doi.org/10.1038/s41592-019-0686-2",
+        ("scipy",)),
+    ("paszke", 2019): (
+        "- Paszke et al. (2019). *PyTorch: An Imperative Style, "
+        "High-Performance Deep Learning Library*. NeurIPS 2019. "
+        "https://arxiv.org/abs/1912.01703",
+        ("pytorch", "torch")),
 }
 
 
