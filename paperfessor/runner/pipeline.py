@@ -177,7 +177,7 @@ def run(
         _phd_review_workers(phd, ms, ug)
         _phase_code(phd, ug, router, direction, method, budgets["code"])
         _phd_review_workers(phd, ms, ug)
-        paper_path = _phase_write(phd, router, direction, method, budgets["write"])
+        paper_path = _phase_write(phd, router, direction, method, budgets["write"], ms=ms)
         result.paper_path = str(paper_path) if paper_path else None
         readiness = _assess_run_readiness(workspace, paper_path)
         if readiness.issues():
@@ -268,6 +268,122 @@ def run(
 # ---- Phases ---------------------------------------------------------------
 
 
+def _verify_ms_report(workspace: Path) -> dict[str, object]:
+    """Supervisor audit of the MS's survey report against ground truth.
+
+    A report is only as good as its evidence: every fully-read paper
+    claimed in research_log.md must be backed by an actual PDF in
+    ``src/papers``. A large gap means the report overstates the
+    reading (hallucination / insufficiency) and the PhD must know.
+    """
+    log = workspace / "shared" / "research_log.md"
+    text = log.read_text(encoding="utf-8") if log.is_file() else ""
+    m = re.search(r"Full-text read:\s*(\d+)\s+papers extracted", text)
+    claimed = int(m.group(1)) if m else 0
+    pdf_count = len(list((workspace / "src" / "papers").glob("*.pdf"))) \
+        if (workspace / "src" / "papers").is_dir() else 0
+    # PDFs persist across runs, so pdf_count >= claimed is normal;
+    # claimed > pdf_count is not.
+    overstated = claimed > pdf_count
+    return {
+        "claimed_read": claimed,
+        "pdfs_on_disk": pdf_count,
+        "overstated": overstated,
+    }
+
+
+def _verify_ug_report(workspace: Path) -> dict[str, object]:
+    """Supervisor audit of the UG's report against results.json.
+
+    The metrics table pasted into code_log.md must be reproducible
+    from results.json — a mismatch means the report contains numbers
+    that were never measured (faulty result), and the model file the
+    report names must exist on disk.
+    """
+    log = workspace / "shared" / "code_log.md"
+    text = log.read_text(encoding="utf-8") if log.is_file() else ""
+    results = _load_run_results(workspace)
+    issues: list[str] = []
+    if "model_status: ok" in text:
+        m = re.search(r"model_file:\s*(\S+)", text)
+        if m and not (workspace / m.group(1)).is_file():
+            issues.append(f"report names missing model file {m.group(1)}")
+    if results:
+        # Every measured F1 mean must appear in the report table and
+        # vice versa: sample-check the proposed rows.
+        for r in results.get("rows", []):
+            if r.get("error") or not str(r.get("method", "")).endswith("(ours)"):
+                continue
+            token = f"{r['f1_mean']:.3f}"
+            if token not in text:
+                issues.append(
+                    f"measured F1 {token} for {r['dataset']} missing from report"
+                )
+    return {"issues": issues, "ok": not issues}
+
+
+def _measured_number_tokens(workspace: Path) -> set[str]:
+    """All legitimate 3-decimal metric tokens from results.json (plus
+    dataset ratios). Used to catch hallucinated metrics in prose."""
+    results = _load_run_results(workspace)
+    tokens: set[str] = set()
+    if not results:
+        return tokens
+    for r in results.get("rows", []):
+        for k in ("f1_mean", "f1_ci", "precision_mean", "recall_mean",
+                  "auroc_mean", "auroc_ci", "auprc_mean"):
+            v = r.get(k)
+            if isinstance(v, (int, float)) and not (isinstance(v, float) and v != v):
+                tokens.add(f"{v:.3f}")
+    for m in results.get("manifests", {}).values():
+        v = m.get("anomaly_ratio_test")
+        if isinstance(v, (int, float)):
+            tokens.add(f"{v:.3f}")
+    return tokens
+
+
+def _review_section(
+    section_id: str, text: str, workspace: Path,
+) -> str | None:
+    """PhD supervisor review of one drafted section.
+
+    Returns feedback (a redraft is required) or None (section passes).
+    Deterministic checks only — this is the anti-hallucination /
+    insufficiency filter, not a style pass:
+
+    - forbidden internal role names / process phrasing;
+    - 3-decimal metric tokens that were never measured;
+    - sections that are too thin to carry their weight.
+    """
+    problems: list[str] = []
+    lowered = text.lower()
+    for banned in ("the ms ", "the ug ", "the phd", "master's student",
+                   "undergraduate", "paperfessor", "what changed"):
+        if banned in lowered:
+            problems.append(
+                f"internal/process wording {banned.strip()!r} must not "
+                f"appear in a published paper"
+            )
+    valid = _measured_number_tokens(workspace)
+    if valid:
+        for tok in set(re.findall(r"\b0\.\d{3}\b", text)):
+            if tok not in valid:
+                problems.append(
+                    f"the number {tok} does not match any measured value — "
+                    f"replace it with a real measurement or remove the claim"
+                )
+    min_chars = {"abstract": 350, "intro": 500, "related": 500,
+                 "method": 400, "experiments": 600}.get(section_id, 200)
+    if len(text.strip()) < min_chars:
+        problems.append(
+            f"section is too thin ({len(text.strip())} chars); expand it "
+            f"with concrete, evidence-anchored content"
+        )
+    if not problems:
+        return None
+    return "; ".join(problems)
+
+
 def _phd_review_workers(phd: PhDStudent, ms: MasterStudent, ug: Undergraduate) -> None:
     """Active review: PhD inspects both workers, persists the
     assessment to doc_memo. The recommendation drives the next
@@ -277,6 +393,31 @@ def _phd_review_workers(phd: PhDStudent, ms: MasterStudent, ug: Undergraduate) -
     so the GUI shows what is happening.
     """
     phd.set_status(PhDStatus.REVIEWING)
+    # Ground-truth audits (hallucination / faulty-result detection):
+    # the logs are checked against the artifacts they describe, not
+    # merely read back.
+    try:
+        ms_audit = _verify_ms_report(phd.workspace)
+        ug_audit = _verify_ug_report(phd.workspace)
+        if ms_audit.get("overstated") or not ug_audit.get("ok", True):
+            phd.append_doc_memo(
+                user_request="supervisor audit",
+                method="(supervision)",
+                stage="audit",
+                ms_summary=(
+                    f"AUDIT FAIL: claims {ms_audit['claimed_read']} papers read, "
+                    f"only {ms_audit['pdfs_on_disk']} PDFs on disk"
+                    if ms_audit.get("overstated") else "audit ok"
+                ),
+                ug_summary=(
+                    "AUDIT FAIL: " + "; ".join(ug_audit.get("issues", []))
+                    if not ug_audit.get("ok", True) else "audit ok"
+                ),
+                stage_goal="reports must match the artifacts they describe",
+                stage_complete=False,
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("worker audit failed; continuing")
     for worker_name, worker in (("ms", ms), ("ug", ug)):
         try:
             assess = phd.assess_worker(worker_name)
@@ -969,6 +1110,7 @@ def _phase_code(
 def _phase_write(
     phd: PhDStudent, router: LLMRouter,
     direction: str, method: str, budget: float,
+    ms: MasterStudent | None = None,
 ) -> Path | None:
     """PhD drafts the paper section by section, with per-section fallback.
 
@@ -995,7 +1137,45 @@ def _phase_write(
 
     # Load the real evidence the MS collected (datasets, claims, etc.).
     evidence = _load_evidence(phd)
+    # Dynamic support loop: writing is not one-way. When the evidence
+    # base is too thin to carry Related Work, the PhD sends the MS
+    # back out for a quick supplementary search before drafting.
+    # Failures are non-fatal (search APIs may be throttled).
+    if ms is not None and len(evidence) < 4:
+        try:
+            extra = ms.search_papers(
+                direction, max_arxiv=8, max_venue=5, relevance_cutoff=0.0,
+                required_tokens=_derive_anchor_tokens(direction),
+            )
+            known = {ev.paper.title.lower()[:60] for ev in evidence}
+            added = 0
+            for p in extra:
+                if p.title.lower()[:60] in known:
+                    continue
+                evidence.append(Evidence(
+                    paper=p, datasets=(), metrics=(), claims=(),
+                    key_figures=(), summary=(p.abstract or "")[:200],
+                ))
+                added += 1
+            phd.append_doc_memo(
+                user_request="write-phase support request",
+                method=method, stage="write:supplement",
+                ms_summary=f"supplementary search added {added} citable papers",
+                interaction_ms="PhD asked MS for extra citations before drafting",
+                stage_goal="evidence base thick enough for Related Work",
+                stage_complete=added > 0,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("supplementary MS search failed; writing with existing evidence")
     readiness = _assess_run_readiness(phd.workspace, None)
+
+    # Self-evolution: failure reasons from every archived past attempt
+    # ride along in the writer's system prompt as an avoid-list.
+    lessons = _past_lessons(phd)
+
+    def _writer_system(section_id: str) -> str:
+        base = _section_system(section_id, direction, method)
+        return base + ("\n\n" + lessons if lessons else "")
 
     sections: list[tuple[str, str]] = []
     for section_id, title, user_prompt, max_tokens in [
@@ -1013,7 +1193,7 @@ def _phase_write(
         else:
             text = _call_llm_with_retry(
                 router, "writer", "phd",
-                system=_section_system(section_id, direction, method),
+                system=_writer_system(section_id),
                 user=user_prompt,
                 max_tokens=max_tokens,
             )
@@ -1038,6 +1218,48 @@ def _phase_write(
             cleaned = _enforce_experiments_subsections(
                 cleaned, direction=direction, method=method,
                 evidence=evidence, workspace=phd.workspace,
+            )
+        # Dynamic supervision loop: the PhD reviews every drafted
+        # section against ground truth (hallucinated numbers,
+        # internal wording, thinness) and demands ONE redraft with
+        # concrete feedback before accepting it. This closes the
+        # write-phase request->work->verify loop the same way the
+        # code phase does.
+        feedback = _review_section(section_id, cleaned, phd.workspace)
+        if feedback and section_source == "llm":
+            phd.set_status(PhDStatus.REVIEWING)
+            redraft = _call_llm_with_retry(
+                router, "writer", "phd",
+                system=_writer_system(section_id),
+                user=(
+                    user_prompt
+                    + "\n\nYour previous draft was REJECTED by the supervising "
+                    "review for these reasons — fix every one and return the "
+                    f"full corrected section:\n{feedback}\n\n"
+                    f"Previous draft:\n{cleaned[:4000]}"
+                ),
+                max_tokens=max_tokens,
+            )
+            phd.set_status(PhDStatus.WRITING)
+            if redraft.strip():
+                redrafted = _clean_section_body(redraft, title)
+                if section_id == "experiments":
+                    redrafted = _enforce_experiments_subsections(
+                        redrafted, direction=direction, method=method,
+                        evidence=evidence, workspace=phd.workspace,
+                    )
+                second = _review_section(section_id, redrafted, phd.workspace)
+                # Accept the redraft when it is no worse than the first.
+                if second is None or len(second) <= len(feedback):
+                    cleaned = redrafted
+                    feedback = second
+        if feedback:
+            phd.append_doc_memo(
+                user_request="section review",
+                method=method, stage=f"write:{section_id}",
+                stage_goal="section passes the supervisor review",
+                lessons=f"unresolved after redraft: {feedback[:300]}",
+                stage_complete=False,
             )
         sections.append((title, cleaned.strip()))
         phd.append_article_memo(
@@ -1078,8 +1300,31 @@ def _phase_write(
         _sh.copy(fig_path, paper_figures_dir / "block_diagram.png")
     except Exception as exc:  # noqa: BLE001
         logger.warning("block diagram generation failed: %s", exc)
+    def _figure_ok(p: Path) -> tuple[bool, str]:
+        """PhD self-audit of a figure it is about to put in the paper:
+        the file must exist, load as an image, be reasonably sized,
+        and be fresh (generated by THIS run, not a stale leftover)."""
+        if not p.is_file():
+            return False, "missing"
+        try:
+            from PIL import Image
+            with Image.open(p) as im:
+                w, h = im.size
+            if w < 400 or h < 150:
+                return False, f"too small ({w}x{h}px)"
+        except Exception as exc:  # noqa: BLE001
+            return False, f"unreadable ({exc})"
+        results_p = phd._workspace / "src" / "results" / "results.json"
+        if results_p.is_file() and p.stat().st_mtime < results_p.stat().st_mtime - 3600:
+            return False, "stale (predates this run's results)"
+        return True, "ok"
+
     section_figures: dict[str, list[str]] = {"3. Method": [], "4. Experimental Setup": []}
-    if (paper_figures_dir / "block_diagram.png").is_file():
+    figure_audit: list[str] = []
+    bd = paper_figures_dir / "block_diagram.png"
+    ok, why = _figure_ok(bd)
+    figure_audit.append(f"block_diagram.png: {why}")
+    if ok:
         section_figures["3. Method"].append(
             "![Block diagram of the proposed method architecture.]"
             "(figures/block_diagram.png)"
@@ -1093,9 +1338,19 @@ def _phase_write(
          "4. Experimental Setup"),
     ):
         src_fig = phd._workspace / "src" / "figures" / fname
-        if src_fig.is_file():
+        ok, why = _figure_ok(src_fig)
+        figure_audit.append(f"{fname}: {why}")
+        if ok:
             _sh.copy(src_fig, paper_figures_dir / fname)
             section_figures[section].append(f"![{caption}](figures/{fname})")
+    # The self-audit result goes into the PhD's paper memory so the
+    # figure_check field carries real findings, not boilerplate.
+    phd.append_article_memo(
+        direction=direction, method=method,
+        progress="figure self-audit",
+        status="; ".join(figure_audit),
+        figure_check="; ".join(figure_audit),
+    )
 
     # Assemble the paper. Run metadata (direction / method /
     # timestamp) lives in doc_memo and the archive — NOT in the
@@ -1518,6 +1773,31 @@ def _clean_section_body(text: str, title: str) -> str:
     out = re.sub(r"\n{3,}", "\n\n", out)
     # Trim trailing whitespace.
     return out.rstrip()
+
+
+def _past_lessons(phd: PhDStudent, *, max_chars: int = 400) -> str:
+    """Self-evolution memory: distinct failure reasons from ALL past
+    archived attempts, distilled into an avoid-list for the writer.
+    This is how earlier runs' mistakes actively shape later papers."""
+    reasons: list[str] = []
+    seen: set[str] = set()
+    try:
+        for a in phd.list_archived():
+            if str(a.get("success")).lower() == "true":
+                continue
+            for chunk in str(a.get("reason", "")).split(";"):
+                c = chunk.strip()
+                key = c.lower()[:40]
+                if c and key not in seen:
+                    seen.add(key)
+                    reasons.append(c)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not reasons:
+        return ""
+    text = "Known failure modes from previous attempts — do not repeat: " \
+        + "; ".join(reasons)
+    return text[:max_chars]
 
 
 def _section_system(section_id: str, direction: str, method: str) -> str:
