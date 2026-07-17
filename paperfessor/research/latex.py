@@ -568,6 +568,7 @@ def write_tex(
     venue_id: str | None = None,
     venue_name: str | None = None,
     page_limit: int = 9,
+    appendix_allowed: bool = True,
 ) -> Path:
     """Emit ``paper.tex`` next to ``paper.md``. Returns the .tex path.
 
@@ -580,10 +581,23 @@ def write_tex(
     """
     body_dir = Path(body_dir)
     body_dir.mkdir(parents=True, exist_ok=True)
+    # Explicit appendix routing: sections titled "## Appendix ..."
+    # carry overflow theory/extended results and are ALWAYS moved out
+    # of the main body (balance rule: valid pages belong to the main
+    # method + experiments). When the venue disallows appendices in
+    # the manuscript, they land in supplementary.md instead.
+    explicit_appendix_md = ""
+    m_app = re.search(r"(?ms)^## Appendix.*?(?=^## References|\Z)", paper_md)
+    if m_app:
+        explicit_appendix_md = m_app.group(0)
+        paper_md = paper_md[:m_app.start()] + paper_md[m_app.end():]
     title, body = md_to_tex_body(paper_md, base_dir=body_dir)
     refs = md_extract_refs(paper_md)
     # Page-limit enforcement: if the body is large, split to appendix.
     body, appendix_md, was_split = _enforce_page_limit(paper_md, body, page_limit)
+    if explicit_appendix_md:
+        appendix_md = (explicit_appendix_md + "\n\n" + appendix_md).strip()
+        was_split = True
     title_tex = _escape(title or "Paper")
     if venue_name:
         # "Target venue", not "Submitted to" — nothing has actually
@@ -604,11 +618,19 @@ def write_tex(
     tex += f"% Page limit: {page_limit} (main text, excluding references)\n"
     tex += body
     if was_split and appendix_md.strip():
-        # Append \appendix + redacted appendix content
-        appendix_tex = md_to_tex_body(appendix_md)[1]
-        appendix_tex = _redact_appendix(appendix_tex)
-        tex += "\n\\appendix\n"
-        tex += appendix_tex
+        if appendix_allowed:
+            # Append \appendix + redacted appendix content.
+            appendix_tex = md_to_tex_body(appendix_md)[1]
+            appendix_tex = _redact_appendix(appendix_tex)
+            tex += "\n\\appendix\n"
+            tex += appendix_tex
+        else:
+            # Venue forbids appendices in the manuscript: the content
+            # becomes a separate supplementary-materials file.
+            (body_dir / "supplementary.md").write_text(
+                "# Supplementary Materials\n\n" + appendix_md,
+                encoding="utf-8",
+            )
     if refs:
         # Balance the two columns on the final page (avoids a long
         # left column next to an empty right one).

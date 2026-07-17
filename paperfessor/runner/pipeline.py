@@ -1010,26 +1010,41 @@ def _datasets_for_direction(direction: str) -> list[str]:
             return names
     return []
 
-_MODEL_CONTRACT = (
-    "Write ONE self-contained Python file implementing the method as an "
-    "anomaly detector with EXACTLY this contract:\n"
-    "```\n"
-    "class Model:\n"
-    "    def __init__(self, seed: int = 0): ...\n"
-    "    def fit(self, train_x):  # np.ndarray (n, d) float64, unlabeled, mostly normal\n"
-    "        ...\n"
-    "    def score(self, test_x): # -> np.ndarray (m,), higher = more anomalous\n"
-    "        ...\n"
-    "```\n"
-    "Hard constraints:\n"
-    "- imports: numpy and scikit-learn ONLY (no torch, no tensorflow, no pip installs)\n"
-    "- no file I/O, no network access, no prints, no __main__ block\n"
-    "- CPU only; fit+score must finish within 60 seconds for n=20000, d=38\n"
-    "- deterministic given the seed; all randomness through np.random.default_rng(seed)\n"
-    "- handle both multivariate (d=38) and univariate (d=1) input\n"
-    "- scores must be finite floats, one per test row\n"
-    "Return ONLY a single ```python code block, nothing after it."
-)
+def _model_contract(gpu: bool) -> str:
+    if gpu:
+        compute_rules = (
+            "- imports: numpy, scikit-learn, and OPTIONALLY torch with CUDA "
+            "for acceleration (a CUDA device is available); the code MUST "
+            "still run correctly when torch.cuda.is_available() is False\n"
+            "- no tensorflow, no pip installs\n"
+            "- fit+score must finish within 120 seconds for n=20000, d=38\n"
+        )
+    else:
+        compute_rules = (
+            "- imports: numpy and scikit-learn ONLY (no torch, no "
+            "tensorflow, no pip installs)\n"
+            "- CPU only; fit+score must finish within 60 seconds for "
+            "n=20000, d=38\n"
+        )
+    return (
+        "Write ONE self-contained Python file implementing the method as an "
+        "anomaly detector with EXACTLY this contract:\n"
+        "```\n"
+        "class Model:\n"
+        "    def __init__(self, seed: int = 0): ...\n"
+        "    def fit(self, train_x):  # np.ndarray (n, d) float64, unlabeled, mostly normal\n"
+        "        ...\n"
+        "    def score(self, test_x): # -> np.ndarray (m,), higher = more anomalous\n"
+        "        ...\n"
+        "```\n"
+        "Hard constraints:\n"
+        + compute_rules +
+        "- no file I/O, no network access, no prints, no __main__ block\n"
+        "- deterministic given the seed; all randomness through np.random.default_rng(seed)\n"
+        "- handle both multivariate (d=38) and univariate (d=1) input\n"
+        "- scores must be finite floats, one per test row\n"
+        "Return ONLY a single ```python code block, nothing after it."
+    )
 
 
 def _extract_python_code(text: str) -> str | None:
@@ -1051,10 +1066,12 @@ def _extract_python_code(text: str) -> str | None:
     return candidate if has_model else None
 
 
-def _validate_model_code(code: str) -> str | None:
+def _validate_model_code(code: str, *, gpu_allowed: bool = False) -> str | None:
     """Static safety check. Returns an error message or None."""
-    banned = ("torch", "tensorflow", "requests", "urllib", "subprocess",
-              "socket", "os.system", "shutil", "open(")
+    banned = ["tensorflow", "requests", "urllib", "subprocess",
+              "socket", "os.system", "shutil", "open("]
+    if not gpu_allowed:
+        banned.append("torch")
     for b in banned:
         if b in code:
             return f"banned construct in model code: {b!r}"
@@ -1078,12 +1095,19 @@ def _phase_code(
     """
     from paperfessor.research.experiments import (
         ModelRunError,
+        gpu_available,
         plot_results,
         rows_to_markdown,
         run_experiments,
         run_llm_model,
         save_results,
     )
+
+    # GPU policy: the proposed model may use CUDA when available
+    # (faster experiments); baselines stay on CPU scikit-learn. Fair,
+    # because detection quality — not runtime — is compared, and the
+    # paper's Protocol states each method's hardware.
+    gpu_ok = gpu_available()
 
     experiment_datasets = _datasets_for_direction(direction)
     if not experiment_datasets:
@@ -1154,7 +1178,7 @@ def _phase_code(
             user=(
                 f"Method to implement: {method}\n"
                 f"Research direction: {direction}\n\n"
-                f"{_MODEL_CONTRACT}\n"
+                f"{_model_contract(gpu_ok)}\n"
                 + (f"\nYour previous attempt failed with this error. Fix it "
                    f"and return the corrected FULL file:\n```\n{feedback}\n```\n"
                    if feedback else "")
@@ -1174,7 +1198,7 @@ def _phase_code(
                         "defining `class Model`")
             rounds.append(f"round {attempt + 1}: no valid code block")
             continue
-        err = _validate_model_code(code)
+        err = _validate_model_code(code, gpu_allowed=gpu_ok)
         if err:
             feedback = err
             rounds.append(f"round {attempt + 1}: static check: {err}")
@@ -1205,7 +1229,8 @@ def _phase_code(
         seeds=(0, 1, 2),
     )
     results_dir = ug.workspace / "src" / "results"
-    save_results(rows, manifests, results_dir)
+    save_results(rows, manifests, results_dir,
+                 proposed_device=("cuda" if gpu_ok else "cpu"))
     fig_path = plot_results(rows, ug.workspace / "src" / "figures" / "results_f1.png")
     # Raw-data sample figure (real test segment, labeled anomalies).
     try:
@@ -1620,26 +1645,11 @@ def _phase_write(
     except Exception:  # noqa: BLE001
         logger.warning("could not tick write-phase guide tasks")
 
-    # Assemble the paper. Run metadata (direction / method /
-    # timestamp) lives in doc_memo and the archive — NOT in the
-    # paper body, where it would leak project-internal info.
-    parts: list[str] = [
-        f"# {method}",
-        "",
-    ]
-    for title, body in sections:
-        parts.append(f"## {title}")
-        parts.append("")
-        parts.append(body)
-        parts.append("")
-        for fig_md in section_figures.get(title, ()):
-            parts.append(fig_md)
-            parts.append("")
-    # NOTE: figure embedding happens BEFORE this assembly loop — see
-    # the section-body augmentation above, which places each figure
-    # inside its own section (block diagram in Method, results +
-    # data-sample figures in Experimental Setup). Appending figures
-    # after the Conclusion produced float-graveyard final pages.
+    # Assembly happens via _reassemble_paper (below, after the
+    # references are collected) so appendix blocks embedded in
+    # section bodies route to the document tail. Run metadata
+    # (direction / method / timestamp) lives in doc_memo and the
+    # archive — NOT in the paper body.
     # References: cite every paper we read, by short cite. Collected
     # into ``reference_lines`` so the self-inspection loop can
     # reassemble the paper without re-running the searches.
@@ -1737,10 +1747,10 @@ def _phase_write(
             "- (No externally-indexed paper was retrievable in the survey window; "
             "all prior-art citations in the body reference the survey log.)"
         )
-    parts.append("## References")
-    parts.append("")
-    parts.extend(reference_lines)
-    paper_path.write_text("\n".join(parts), encoding="utf-8")
+    paper_path.write_text(
+        _reassemble_paper(method, sections, section_figures, reference_lines),
+        encoding="utf-8",
+    )
 
     # 0.5 PhD whole-paper SELF-INSPECTION loop (per spec: inspect the
     # assembled paper comprehensively, fix the problems one by one,
@@ -2247,6 +2257,16 @@ def _count_body_pages(pdf_path: Path) -> tuple[int, float]:
     return total, body
 
 
+def _split_off_appendix(body: str) -> tuple[str, str]:
+    """Split a section body into (main, appendix_block). Appendix
+    blocks ('## Appendix ...') are written by the section authors at
+    the end of their replies and must move to the document tail."""
+    m = re.search(r"(?ms)^## Appendix.*\Z", body)
+    if not m:
+        return body, ""
+    return body[:m.start()].rstrip(), m.group(0).strip()
+
+
 def _reassemble_paper(
     method: str,
     sections: list[tuple[str, str]],
@@ -2254,16 +2274,25 @@ def _reassemble_paper(
     reference_lines: list[str],
 ) -> str:
     """Rebuild paper.md from its parts (used by the self-inspection
-    loop after sections are revised)."""
+    loop after sections are revised). Appendix blocks embedded in
+    section bodies are gathered and emitted contiguously before
+    References so the .tex writer routes them after \\appendix."""
     parts: list[str] = [f"# {method}", ""]
+    appendix_blocks: list[str] = []
     for title, body in sections:
+        main, appendix = _split_off_appendix(body)
+        if appendix:
+            appendix_blocks.append(appendix)
         parts.append(f"## {title}")
         parts.append("")
-        parts.append(body)
+        parts.append(main)
         parts.append("")
         for fig_md in section_figures.get(title, ()):
             parts.append(fig_md)
             parts.append("")
+    for block in appendix_blocks:
+        parts.append(block)
+        parts.append("")
     parts.append("## References")
     parts.append("")
     parts.extend(reference_lines)
@@ -2313,10 +2342,14 @@ def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
     # by the LaTeX converter and would print literally.
     if re.search(r"\[\^\w+\]", paper_md):
         defects.append("markdown footnote marker [^...] would print literally in the PDF")
-    # Safeguard 5 — implementation fidelity: the experiments run a
-    # CPU-only numpy/scikit-learn variant; Method text claiming
+    # Safeguard 5 — implementation fidelity: when the experiments ran
+    # the CPU numpy/scikit-learn variant, Method text claiming
     # deep-learning training procedures contradicts the Protocol.
-    if _load_run_results(workspace):
+    # (With a recorded CUDA run, such claims are legitimate.)
+    _res = _load_run_results(workspace)
+    _proposed_hw = ((_res or {}).get("protocol", {}) or {}).get(
+        "hardware", {}).get("proposed", "cpu")
+    if _res and _proposed_hw == "cpu":
         m = re.search(
             r"\btrains? end-to-end\b|\bwith adam\b|\badam optimizer\b|"
             r"\bbackpropagat\w*|\bepochs? of training\b|\blearning-rate schedule\b",
@@ -2822,17 +2855,36 @@ def _related_prompt(direction: str, method: str, evidence: list[Evidence]) -> st
 def _method_prompt(direction: str, method: str, evidence: list[Evidence],
                    workspace: Path | None = None) -> str:
     headline = _results_headline(workspace)
+    res = _load_run_results(workspace) if workspace else None
+    proposed_hw = ((res or {}).get("protocol", {}) or {}).get(
+        "hardware", {}).get("proposed", "cpu")
+    if proposed_hw == "cpu":
+        fidelity = (
+            f"IMPLEMENTATION FIDELITY: describe the method AS "
+            f"IMPLEMENTED — a CPU-only numpy/scikit-learn variant with no "
+            f"neural training (no Adam, no backpropagation, no epochs, no "
+            f"GPU); the Protocol section states this and the Method must not "
+            f"contradict it. Idealized deep extensions may be mentioned only "
+            f"as future work. "
+        )
+    else:
+        fidelity = (
+            f"IMPLEMENTATION FIDELITY: the implementation ran on "
+            f"{proposed_hw}; describe the training procedure exactly as "
+            f"implemented and claim no capability beyond it. "
+        )
     return (
         f"Write the Method section (2-3 paragraphs) for {method!r}. "
         f"Describe the method concretely; include one figure described in "
-        f"words. IMPLEMENTATION FIDELITY: describe the method AS "
-        f"IMPLEMENTED — a CPU-only numpy/scikit-learn variant with no "
-        f"neural training (no Adam, no backpropagation, no epochs, no "
-        f"GPU); the Protocol section states this and the Method must not "
-        f"contradict it. Idealized deep extensions may be mentioned only "
-        f"as future work. Do NOT list evaluation datasets here (Section 4 "
+        f"words. {fidelity}"
+        f"Do NOT list evaluation datasets here (Section 4 "
         f"covers them); do NOT promise experiments on datasets that were "
-        f"not run. No fabricated numbers.\n\n{headline}"
+        f"not run. No fabricated numbers. BALANCE RULE: the main body "
+        f"carries the core formulation and intuition only (~1-1.5 pages "
+        f"of theory); extended derivations, lemmas, and step-by-step "
+        f"proofs go into a trailing block titled '## Appendix A: Extended "
+        f"Derivations' at the END of your reply — it is routed out of "
+        f"the main pages automatically.\n\n{headline}"
     )
 
 
@@ -2935,6 +2987,11 @@ def _experiments_prompt(direction: str, method: str, evidence: list[Evidence],
     table = _results_table_md(workspace) if workspace else None
     if results and table:
         ds_table = _dataset_summary_md(results)
+        hw = (results.get("protocol", {}) or {}).get("hardware", {}) or {}
+        hw_note = (
+            f"baselines on {hw.get('baselines', 'cpu (numpy/scikit-learn)')}; "
+            f"the proposed method on {hw.get('proposed', 'cpu')}"
+        )
         return (
             f"Write the Experimental Setup section with EXACTLY these four sub-headings "
             f"(in this order, all four are MANDATORY):\n"
@@ -2956,8 +3013,9 @@ def _experiments_prompt(direction: str, method: str, evidence: list[Evidence],
             f"literature baselines from the survey by author-year for context.\n"
             f"  ## 4.3 Protocol — state EXACTLY: contiguous train/val/test split (no "
             f"shuffling), best-F1 threshold sweep (standard TS-AD protocol), 'k = 3 seeds' "
-            f"and '95% confidence interval' (Student-t), CPU-only implementation in "
-            f"numpy/scikit-learn, Python 3.11. Do NOT claim GPU hardware that was not used.\n"
+            f"and '95% confidence interval' (Student-t), Python 3.11, and the "
+            f"per-method hardware as RECORDED: {hw_note}. State hardware "
+            f"honestly per method; never claim hardware that was not used.\n"
             f"  ## 4.4 Results — reproduce the results table above EXACTLY as Markdown, "
             f"then 2-3 sentences of honest analysis: where the proposed method wins, "
             f"where it loses, and one plausible reason each.\n\n"
@@ -3021,7 +3079,12 @@ def _analysis_prompt(direction: str, method: str, evidence: list[Evidence],
         f"of the losing dataset defeats the method's core assumption.\n"
         f"  ## 5.4 Threats to validity — best-F1 threshold sweep caveats, "
         f"few-dataset scope, single-machine SMD shard, short NAB traces.\n"
-        f"No fabricated numbers; no invented ablations.\n\n"
+        f"No fabricated numbers; no invented ablations. BALANCE RULE: "
+        f"keep the main body focused on the headline findings; secondary "
+        f"metric breakdowns (full precision/recall/AUPRC commentary per "
+        f"dataset) go into a trailing block titled '## Appendix B: "
+        f"Extended Results Commentary' at the END of your reply — it is "
+        f"routed out of the main pages automatically.\n\n"
         f"{headline}\n\nFull results table:\n{table}"
     )
 

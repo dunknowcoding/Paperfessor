@@ -203,6 +203,22 @@ np.save(out_p, scores)
 """
 
 
+def gpu_available() -> bool:
+    """True when PyTorch with a working CUDA device is importable.
+
+    The UG uses this to decide whether the proposed model may use
+    GPU acceleration. Baselines stay on CPU (scikit-learn); this is
+    fair because the comparison is on detection QUALITY, not
+    runtime — and the paper's Protocol section must state each
+    method's hardware honestly.
+    """
+    try:
+        import torch  # type: ignore
+        return bool(torch.cuda.is_available())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class ModelRunError(RuntimeError):
     """The LLM-written model failed to run; the message carries the
     subprocess stderr so the UG can feed it back for a fix."""
@@ -383,7 +399,7 @@ def rows_to_markdown(rows: list[MetricRow]) -> str:
 
 
 def save_results(rows: list[MetricRow], manifests: dict[str, dict],
-                 out_dir: Path) -> Path:
+                 out_dir: Path, *, proposed_device: str = "cpu") -> Path:
     """Persist results.json + results.md under ``out_dir``."""
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -393,6 +409,12 @@ def save_results(rows: list[MetricRow], manifests: dict[str, dict],
             "threshold": "best-F1 sweep (standard TS-AD protocol)",
             "seeds": "k = 3 seeds; mean ± 95% confidence interval (Student-t)",
             "split": "contiguous train/val/test split (no shuffling)",
+            # Honest per-method hardware record: baselines always run
+            # scikit-learn on CPU; the proposed model may use CUDA.
+            "hardware": {
+                "baselines": "cpu (numpy/scikit-learn)",
+                "proposed": proposed_device,
+            },
         },
     }
     (out_dir / "results.json").write_text(
