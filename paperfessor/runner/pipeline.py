@@ -92,6 +92,11 @@ class RunReadiness:
     # True when the final artifact should have been a PDF but is not
     # (pdflatex failed). Checked only in the end-of-run assessment.
     pdf_missing: bool = False
+    # True when experiments ran and the proposed method took best F1
+    # on zero datasets. Honest negative results are still archived,
+    # but per the spec the pipeline should then move on to a
+    # different method rather than declare success.
+    method_uncompetitive: bool = False
 
     @property
     def force_provisional_write(self) -> bool:
@@ -111,6 +116,12 @@ class RunReadiness:
             out.append("Article 19 visual inspection did not pass")
         if self.pdf_missing:
             out.append("no rendered PDF (pdflatex failed; .md/.tex only)")
+        if self.method_uncompetitive:
+            out.append(
+                "proposed method won best F1 on no dataset (req: iterate "
+                "methods until competitive; archived so the next run "
+                "tries a different method)"
+            )
         return out
 
 
@@ -2025,6 +2036,27 @@ def _assess_run_readiness(workspace: Path, paper_path: Path | None) -> RunReadin
         # A non-PDF final artifact means the LaTeX build failed. The
         # run must not pass just because there was nothing to inspect.
         pdf_missing = True
+    # Competitiveness (end-of-run only, when experiments produced
+    # results): the proposed method must take best F1 on at least
+    # one dataset, or the attempt is archived as failed so the next
+    # run designs a different method (req: iterate toward SOTA).
+    method_uncompetitive = False
+    if paper_path is not None:
+        results = _load_run_results(workspace)
+        rows = (results or {}).get("rows", [])
+        ok_rows = [r for r in rows if not r.get("error")]
+        ours = [r for r in ok_rows if str(r.get("method", "")).endswith("(ours)")]
+        if ours:
+            wins = 0
+            for r in ours:
+                best = max(
+                    (b.get("f1_mean", 0.0) for b in ok_rows
+                     if b.get("dataset") == r.get("dataset")),
+                    default=0.0,
+                )
+                if r.get("f1_mean", 0.0) >= best:
+                    wins += 1
+            method_uncompetitive = (wins == 0)
     return RunReadiness(
         readable_papers=readable_papers,
         survey_blocked=survey_blocked,
@@ -2032,6 +2064,7 @@ def _assess_run_readiness(workspace: Path, paper_path: Path | None) -> RunReadin
         placeholder_metric=placeholder_metric,
         visual_ok=visual_ok,
         pdf_missing=pdf_missing,
+        method_uncompetitive=method_uncompetitive,
     )
 
 
