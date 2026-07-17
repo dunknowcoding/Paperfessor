@@ -64,18 +64,20 @@ dev = [
 ]
 
 [project.scripts]
-paperfessor = "src.cli.app:app"
-paperfessor-gui = "src.gui.app:main"
+paperfessor = "paperfessor.cli.app:app"
+paperfessor-gui = "paperfessor.gui.app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["paperfessor"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/i18n/locales" = "i18n/locales"
+# Agent skill files ship inside the package so installed copies get
+# the same prompt-injected skills as a repo checkout.
+"Skill" = "paperfessor/Skill"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src",
+    "paperfessor",
     "Skill",
     "README.md",
     "LICENSE",

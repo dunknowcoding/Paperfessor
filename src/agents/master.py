@@ -411,13 +411,21 @@ class MasterStudent(_WorkspaceAgent):
 
     @staticmethod
     def _build_arxiv_query(topic: str) -> str:
-        """Build a strict arXiv query: title + abstract, all topic
-        tokens must appear. Use ``all:`` for free search."""
+        """Build a strict arXiv query: title + abstract, topic tokens
+        must appear. Use ``all:`` for free search.
+
+        Long directions produce many tokens; AND-ing all of them
+        returns near-zero hits (and long URLs arXiv throttles), so
+        the query keeps only the 5 most informative tokens (longest
+        first, original order preserved among the picks)."""
         tokens = MasterStudent._topic_tokens(topic)
         if not tokens:
             return topic
+        if len(tokens) > 5:
+            keep = set(sorted(tokens, key=len, reverse=True)[:5])
+            tokens = [t for t in tokens if t in keep][:5]
         # arXiv supports AND, OR, ti:, au:, abs:, all:. We require
-        # each token to appear somewhere in title+abstract.
+        # each kept token to appear somewhere in title+abstract.
         return " AND ".join(f'all:"{t}"' for t in tokens)
 
     @staticmethod

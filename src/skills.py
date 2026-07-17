@@ -55,8 +55,17 @@ class Skill:
 
 
 def skills_root() -> Path:
-    """Return the path to the project's ``Skill/`` directory."""
-    # src/skills.py -> go up 2 parents to reach the repo root.
+    """Return the path to the ``Skill/`` directory.
+
+    Two layouts are supported:
+    - installed wheel: ``Skill/`` ships inside the package
+      (``<package>/Skill``, via the hatch force-include);
+    - repo checkout: ``Skill/`` sits at the repo root, one level
+      above the package directory.
+    """
+    pkg_local = Path(__file__).resolve().parent / "Skill"
+    if pkg_local.is_dir():
+        return pkg_local
     return Path(__file__).resolve().parent.parent / "Skill"
 
 

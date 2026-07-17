@@ -994,7 +994,7 @@ def _phase_write(
         ("method", "3. Method", _method_prompt(direction, method, evidence, phd.workspace), 1300),
         ("experiments", "4. Experimental Setup", _experiments_prompt(direction, method, evidence, phd.workspace), 2400),
         ("conclusion", "5. Conclusion", _conclusion_prompt(direction, method, evidence, phd.workspace), 600),
-        ("limitations", "6. Limitations and Future Work", _limitations_prompt(direction, method, evidence), 600),
+        ("limitations", "6. Limitations and Future Work", _limitations_prompt(direction, method, evidence, phd.workspace), 600),
     ]:
         if readiness.force_provisional_write:
             text = _section_fallback(section_id, direction, method, evidence)
@@ -1155,12 +1155,21 @@ def _phase_write(
             if ref_count >= 18:
                 break
             try:
-                papers = _ax_search(title, max_results=2)
+                papers = _ax_search(title, max_results=3)
             except Exception:  # noqa: BLE001
                 papers = []
-            for p in papers[:1]:
+            query_tokens = {t.lower() for t in _informative_tokens(title)}
+            for p in papers:
                 aid = p.arxiv_id.split("v", 1)[0] if p.arxiv_id else None
                 if not aid:
+                    continue
+                # Relevance guard: arXiv's first hit is sometimes a
+                # completely unrelated paper (observed: an air-pollutant
+                # forecasting paper matched a TS-AD benchmark query).
+                # The result's title must share >= 2 informative tokens
+                # with the query, or it is skipped.
+                hit_tokens = {t.lower() for t in _informative_tokens(p.title)}
+                if len(query_tokens & hit_tokens) < 2:
                     continue
                 first = p.authors[0].split()[-1] if p.authors else "anon"
                 ref_text = (
@@ -1172,6 +1181,7 @@ def _phase_write(
                     continue
                 parts.append(ref_text)
                 ref_count += 1
+                break
     if ref_count == 0:
         # Last-resort: emit a single "no papers found" line so the
         # References section is non-empty.
@@ -1718,12 +1728,18 @@ def _experiments_prompt(direction: str, method: str, evidence: list[Evidence],
     )
 
 
-def _limitations_prompt(direction: str, method: str, evidence: list[Evidence]) -> str:
+def _limitations_prompt(direction: str, method: str, evidence: list[Evidence],
+                        workspace: Path | None = None) -> str:
+    headline = _results_headline(workspace)
     return (
         f"Write a 1-paragraph Limitations and Future Work section. "
         f"Be honest: what does method={method!r} NOT solve? What datasets "
         f"are missing from the survey? What assumptions are not tested? "
         f"No filler. 80-150 words. "
+        f"HONESTY CONSTRAINT: the empirical study covered ONLY the datasets "
+        f"listed below — never describe the evaluation as spanning any other "
+        f"benchmark. Unevaluated benchmarks may only be named as future work.\n\n"
+        f"{headline or '(no experiments were run)'}\n\n"
         f"IMPORTANT: do NOT use placeholder citation tags like "
         f"'[paper1]', '[paper2]', '[ref: ...]', '[cite needed]', "
         f"'[todo ...]'. If you would have cited a paper, either drop "

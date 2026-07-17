@@ -480,7 +480,19 @@ def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
                     )
                 body_lines.append(r"    \hline")
                 body_lines.append(r"  \end{tabular}}")
-                body_lines.append(r"  \caption{Measured results (see Section 4).}")
+                # Caption from the table's content (a dataset-stats
+                # table must not be captioned "Measured results").
+                header_l = {h.lower() for h in header}
+                if {"method", "f1"} & header_l and "f1" in header_l:
+                    caption = (
+                        "Measured results (k = 3 seeds where stochastic; "
+                        "best F1 per dataset in bold)."
+                    )
+                elif {"train", "test"} & header_l or "anomaly ratio" in header_l:
+                    caption = "Dataset statistics (real public benchmarks)."
+                else:
+                    caption = "Summary."
+                body_lines.append(rf"  \caption{{{caption}}}")
                 body_lines.append(rf"\end{{{env}}}")
                 body_lines.append("")
             else:

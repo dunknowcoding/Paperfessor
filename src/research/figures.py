@@ -50,15 +50,24 @@ def generate_block_diagram(
             fontsize=10, style="italic", color="#555")
     # Boxes for the 4 stages.
     boxes = [
-        ("Raw Input", f"Multivariate time series\n(datasets: {', '.join(datasets[:3])})", "#cfe2ff"),
+        ("Raw Input",
+         "Multivariate time series\n"
+         f"({', '.join(d[:18] for d in datasets[:3])})",
+         "#cfe2ff"),
         ("Representation", "Self-supervised\ncontrastive encoder", "#d1e7dd"),
         ("Anomaly Score", "Per-window\ndeviation score", "#fff3cd"),
         ("Decision", "Threshold +\nlabel per window", "#f8d7da"),
     ]
-    box_w, box_h = 1.8, 1.5
+    # Geometry: 4 boxes with real gaps so titles can never collide
+    # (the old 1.8-wide boxes at 2.2 pitch made 11pt titles overlap).
+    box_w, box_h = 2.1, 1.6
+    gap = 0.35
+    total = 4 * box_w + 3 * gap
+    x_start = (10.0 - total) / 2
+    x_positions = [x_start + i * (box_w + gap) for i in range(4)]
     y = 1.7
-    x_positions = [0.5, 2.7, 4.9, 7.1]
     centers = []
+    import textwrap
     for (title, body, color), x in zip(boxes, x_positions):
         rect = mpatches.FancyBboxPatch(
             (x, y), box_w, box_h,
@@ -66,15 +75,18 @@ def generate_block_diagram(
             linewidth=1.2, edgecolor="#333", facecolor=color,
         )
         ax.add_patch(rect)
-        ax.text(x + box_w / 2, y + box_h - 0.25, title,
-                ha="center", va="center", fontsize=11, fontweight="bold")
-        ax.text(x + box_w / 2, y + 0.5, body,
-                ha="center", va="center", fontsize=8.5)
+        ax.text(x + box_w / 2, y + box_h - 0.3, title,
+                ha="center", va="center", fontsize=9.5, fontweight="bold")
+        wrapped = "\n".join(
+            textwrap.fill(line, width=20) for line in body.splitlines()
+        )
+        ax.text(x + box_w / 2, y + 0.55, wrapped,
+                ha="center", va="center", fontsize=7.5)
         centers.append(x + box_w)
     # Arrows between boxes.
     for i in range(3):
-        x0 = centers[i] + 0.05
-        x1 = x_positions[i + 1] - 0.05
+        x0 = centers[i] + 0.04
+        x1 = x_positions[i + 1] - 0.04
         ax.annotate(
             "", xy=(x1, y + box_h / 2), xytext=(x0, y + box_h / 2),
             arrowprops=dict(arrowstyle="->", lw=1.5, color="#333"),

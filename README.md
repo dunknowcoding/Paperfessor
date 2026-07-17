@@ -101,10 +101,18 @@ shared/*.md               # the agents' guides and work logs
 archived/<slug>/<run id>/ # permanent record of the attempt
 ```
 
-Prefer a window? `paperfessor-gui` launches the desktop app with the same
-pipeline, live agent status, token usage, and a paper preview.
+The CLI in action (real output from a completed run):
 
-<!-- screenshots: docs/assets/gui.png and docs/assets/cli.png -->
+<div align="center">
+<img src="docs/assets/cli.svg" alt="Paperfessor CLI: key management, memory stats, and a completed run producing a PDF that passes all 6 layout checks" width="92%"/>
+</div>
+
+Prefer a window? `paperfessor-gui` launches the desktop app with the same
+pipeline, live agent status, token usage, and a built-in paper preview:
+
+<div align="center">
+<img src="docs/assets/gui.png" alt="Paperfessor GUI: the Paper tab rendering the generated venue-formatted PDF" width="92%"/>
+</div>
 
 ## Configuration
 
