@@ -516,15 +516,33 @@ class MasterStudent(_WorkspaceAgent):
     def read_paper(self, record: PaperRecord) -> FullTextRecord:
         """Download (if needed) and extract the full text of ``record``.
 
-        The PDF is cached at ``workspace/src/papers/<arxiv_id>.pdf``
-        (or ``<doi_slug>.pdf`` if no arXiv id). The body is the
-        ``load_text`` output of pypdf, page-by-page.
+        Acquisition ladder: arXiv PDF -> Semantic Scholar open-access
+        PDF -> Unpaywall OA location -> Playwright-rendered HTML of
+        the paper's landing page (last resort; many OA papers publish
+        full text as HTML).
 
         Raises:
-            PaperInaccessible: if the PDF is paywalled / 403 / 404.
+            PaperInaccessible: when every rung of the ladder fails.
                 The caller can try the next record.
         """
-        if not record.pdf_url and not record.arxiv_id:
+        try:
+            return self._read_paper_pdf(record)
+        except PaperInaccessible as exc:
+            # Last rung: render the landing page in a real browser and
+            # use the visible HTML text. Non-PDF, but full text is
+            # full text. Any failure re-raises the ORIGINAL error so
+            # the log explains the PDF situation, not the browser's.
+            if record.source_url:
+                try:
+                    ft = self.read_paper_online(record.source_url)
+                    if ft.body_chars > 4000:
+                        return ft
+                except Exception:  # noqa: BLE001
+                    pass
+            raise exc
+
+    def _read_paper_pdf(self, record: PaperRecord) -> FullTextRecord:
+        if not record.pdf_url and not record.arxiv_id and not record.doi:
             raise PaperInaccessible(f"no PDF source for paper: {record.title!r}")
         self.set_status(MasterStatus.READING)
         cache_dir = self._workspace / "src" / "papers"
@@ -558,11 +576,15 @@ class MasterStudent(_WorkspaceAgent):
                 )
                 pdf_path = arxiv.download_pdf(arxiv_paper, cache_dir)
             elif record.doi:
-                # OpenAlex paper with DOI: try to find a free arXiv
-                # version via Semantic Scholar. If that fails too, the
-                # caller falls back to using the abstract only.
+                # OpenAlex paper with DOI: climb the open-access
+                # ladder — (1) arXiv version, (2) Semantic Scholar
+                # openAccessPdf, (3) Unpaywall best OA location.
                 from paperfessor.research.sources.s2 import (
                     find_arxiv_id_for_doi as _s2_doi,
+                    open_access_pdf_for_doi as _s2_oa,
+                )
+                from paperfessor.research.sources.oa import (
+                    unpaywall_pdf_for_doi as _upw,
                 )
                 try:
                     arxiv_id_from_doi = _s2_doi(record.doi)
@@ -591,9 +613,32 @@ class MasterStudent(_WorkspaceAgent):
                     # non-existent file.
                     pdf_path = arxiv.download_pdf(arxiv_paper, cache_dir)
                 else:
-                    raise PaperInaccessible(
-                        f"no arXiv version found for DOI {record.doi!r} ({record.title!r})"
-                    )
+                    oa_url = None
+                    try:
+                        oa_url = _s2_oa(record.doi)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    if not oa_url:
+                        oa_url = _upw(record.doi)
+                    if not oa_url:
+                        raise PaperInaccessible(
+                            f"no open-access copy found for DOI "
+                            f"{record.doi!r} ({record.title!r}) via arXiv, "
+                            f"Semantic Scholar, or Unpaywall"
+                        )
+                    import requests as _rq
+                    try:
+                        resp = _rq.get(
+                            oa_url,
+                            headers={"User-Agent": "Paperfessor/1.0 (research)"},
+                            timeout=60,
+                        )
+                        resp.raise_for_status()
+                    except _rq.RequestException as exc:
+                        raise PaperInaccessible(
+                            f"OA PDF {oa_url} download failed: {exc}"
+                        )
+                    pdf_path.write_bytes(resp.content)
             else:
                 # OpenAlex/other: download via the pdf_url directly.
                 import requests

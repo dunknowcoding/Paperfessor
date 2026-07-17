@@ -39,12 +39,33 @@ order; dedup by title.
    so the search stays on-topic.
 
 3. **Google Scholar via Playwright**
-   (`src/research/web.py:search_google_scholar`): the only path
-   that covers non-arXiv/non-OpenAlex papers (publisher
+   (`paperfessor/research/web.py:search_google_scholar`): the only
+   path that covers non-arXiv/non-OpenAlex papers (publisher
    paywalls, lab sites, OpenReview, etc.). Slow, but high
    recall. **Always include in the search**, even if it
    returns 0 results — the PhD will downgrade a survey that
    skipped Scholar.
+
+## Getting the FULL TEXT (the open-access ladder)
+
+A found paper is worthless until you can read it. `read_paper`
+climbs this ladder automatically — know it so you can explain
+your inaccessible list:
+
+1. **arXiv PDF** — always downloadable when an arXiv version
+   exists (also resolved from a DOI via Semantic Scholar).
+2. **Semantic Scholar `openAccessPdf`** — legal OA copies hosted
+   by publishers, PubMed Central, and institutional repositories.
+3. **Unpaywall** — the OA index keyed by DOI. Only queried when
+   the user configured `PAPERFESSOR_CONTACT_EMAIL` (its terms
+   require a real address).
+4. **Playwright-rendered HTML** — many OA papers publish full
+   text as HTML; the landing page is rendered in a real browser
+   and the visible text is used when it is substantial (> 4000
+   chars).
+
+Only when EVERY rung fails may a paper be logged as
+inaccessible — and the log entry must say which rungs were tried.
 
 ## When you log a survey
 

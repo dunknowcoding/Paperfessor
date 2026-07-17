@@ -255,9 +255,7 @@ def _http_get(url: str, *, max_retries: int = 5) -> dict:
     the per-second budget.
     """
     _throttle()
-    headers = {
-        "User-Agent": "Paperfessor/0.4 (research; mailto:research@paperfessor.local)"
-    }
+    headers = {"User-Agent": "Paperfessor/1.0 (research)"}
     last_exc: BaseException | None = None
     for attempt in range(max_retries):
         try:
@@ -312,13 +310,30 @@ def find_arxiv_id_for_doi(doi: str) -> str | None:
     # Strip version suffix (e.g. "2108.09896v2" -> "2108.09896").
     return str(arxiv_id).split("v", 1)[0]
 
+def open_access_pdf_for_doi(doi: str) -> str | None:
+    """Return the open-access PDF URL S2 knows for ``doi``, or None.
+
+    This rescues papers that have no arXiv version but ARE openly
+    hosted (publisher OA, institutional repositories, PMC, ...).
+    """
+    if not doi or not doi.strip():
+        return None
+    try:
+        paper = fetch_by_doi(doi)
+    except Exception:  # noqa: BLE001
+        return None
+    return paper.open_access_pdf_url
+
+
 __all__ = [
     "S2_BASE",
     "S2Error",
     "S2Paper",
     "fetch_by_arxiv_id",
     "fetch_by_doi",
+    "find_arxiv_id_for_doi",
     "get_citations",
     "get_references",
+    "open_access_pdf_for_doi",
     "search",
 ]
