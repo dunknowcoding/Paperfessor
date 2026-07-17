@@ -526,7 +526,10 @@ def plot_results(rows: list[MetricRow], out_path: Path) -> Path | None:
     ax.tick_params(axis="y", labelsize=9, colors=_MUTED_INK)
     ax.tick_params(axis="x", colors=_INK)
     ax.set_ylim(0, 1)
-    ax.legend(fontsize=9, ncol=2, frameon=False, loc="upper left")
+    # Legend ABOVE the axes so it can never collide with bars or
+    # their direct labels (observed: a 0.81 label brushing the box).
+    ax.legend(fontsize=9, ncol=min(4, len(methods)), frameon=False,
+              loc="lower center", bbox_to_anchor=(0.5, 1.02))
     ax.spines[["top", "right"]].set_visible(False)
     ax.spines[["left", "bottom"]].set_color("#AAAAAA")
     fig.tight_layout()

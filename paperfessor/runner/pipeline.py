@@ -2148,11 +2148,13 @@ def _phase_write(
                         f"but currently reaches {body_p:.1f}. EXPAND this "
                         f"section by 30-50% with REAL substance only: "
                         f"deeper analysis of the measured numbers, richer "
-                        f"engagement with the cited literature, precise "
-                        f"methodological detail. NO filler sentences, NO "
-                        f"new numbers, NO new datasets. Return the full "
-                        f"expanded section body (no heading).\n\n"
-                        f"Current section '{title}':\n{body[:6000]}"
+                        f"engagement with the ALREADY-CITED literature, "
+                        f"precise methodological detail. NO filler "
+                        f"sentences, NO new numbers, NO new datasets, and "
+                        f"do NOT introduce NEW author-year citations that "
+                        f"are not already in the paper — reuse the existing "
+                        f"ones. Return the full expanded section body (no "
+                        f"heading).\n\nCurrent section '{title}':\n{body[:6000]}"
                     ),
                     max_tokens=3000,
                 )
@@ -2178,6 +2180,72 @@ def _phase_write(
             )
             pdf_path = build_pdf(tex_path, texinputs=[templates_dir])
             pdf_built = pdf_path.suffix.lower() == ".pdf" and pdf_path.is_file()
+        # 2.45 POST-EXPANSION cleanup: expansion adds fresh prose that
+        #      can reintroduce uncited references and borderline
+        #      numbers the earlier self-inspection never saw (expansion
+        #      runs after it). Run bounded cleanup on the FINAL text:
+        #      resolve citations, scan defects, redraft the offending
+        #      sections, rebuild — so the accepted paper is clean.
+        if pdf_built and not readiness.force_provisional_write:
+            for cleanup_round in range(2):
+                md_now = paper_path.read_text(encoding="utf-8")
+                defects = _whole_paper_defects(md_now, phd.workspace)
+                if not defects:
+                    break
+                defects, refs_added = _resolve_missing_citations(
+                    defects, md_now, reference_lines)
+                fixed_any = refs_added > 0
+                if defects and _llm_budget_left(router):
+                    new_secs = []
+                    for title, body in sections:
+                        rel = [d for d in defects
+                               if _defect_targets_section(d, title, body)]
+                        if not rel:
+                            new_secs.append((title, body))
+                            continue
+                        sid = _SECTION_ID_BY_TITLE.get(title, "")
+                        rd = _call_llm_with_retry(
+                            router, "writer", "phd",
+                            system=_writer_system(sid or "revision"),
+                            user=(
+                                "Fix EVERY defect below in this section; "
+                                "keep the length and everything correct. "
+                                "Return the full corrected body (no "
+                                "heading).\n\nDefects:\n"
+                                + "\n".join(f"- {d}" for d in rel[:8])
+                                + f"\n\nSection '{title}':\n{body[:6000]}"
+                            ),
+                            max_tokens=2400,
+                        )
+                        if rd.strip():
+                            new_secs.append((title, _clean_section_body(rd, title).strip()))
+                            fixed_any = True
+                        else:
+                            new_secs.append((title, body))
+                    sections = new_secs
+                phd.append_article_memo(
+                    direction=direction, method=method,
+                    progress=f"post-expansion cleanup round {cleanup_round + 1}",
+                    status=f"{len(defects)} defects; +{refs_added} refs",
+                    references_check=f"{refs_added} citations resolved post-expansion",
+                )
+                if not fixed_any:
+                    break
+                paper_path.write_text(
+                    _reassemble_paper(method, sections, section_figures,
+                                      reference_lines),
+                    encoding="utf-8",
+                )
+                tex_path = write_tex(
+                    paper_path.read_text(encoding="utf-8"),
+                    paper_path.parent,
+                    class_name=venue["class_name"],
+                    venue_id=venue.get("venue_id"),
+                    venue_name=venue.get("venue_name"),
+                    page_limit=venue.get("page_limit", 9),
+                )
+                pdf_path = build_pdf(tex_path, texinputs=[templates_dir])
+                pdf_built = pdf_path.suffix.lower() == ".pdf" and pdf_path.is_file()
         # 2.5 Run the Article 19 visual inspect on the rendered PDF and
         #     fold the result into the next article_memo entry. The
         #     PhD never declares the paper "ready" without this check.
@@ -2599,12 +2667,29 @@ def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
             )
     valid = _measured_number_tokens(workspace)
     if valid:
+        valid_floats = []
+        for v in valid:
+            try:
+                valid_floats.append(float(v))
+            except ValueError:
+                pass
         for tok in sorted(set(re.findall(r"\b0\.\d{3}\b", body))):
-            if tok not in valid:
-                defects.append(
-                    f"number {tok} does not match any measured value "
-                    f"(hallucinated metric?)"
-                )
+            if tok in valid:
+                continue
+            # Rounding-boundary tolerance: a derived delta the writer
+            # rounded to 0.569 must not be flagged when the token set
+            # holds 0.570 (both are the same measured difference at a
+            # rounding edge). Accept within +-0.0015.
+            try:
+                tf = float(tok)
+            except ValueError:
+                continue
+            if any(abs(tf - vf) <= 0.0015 for vf in valid_floats):
+                continue
+            defects.append(
+                f"number {tok} does not match any measured value "
+                f"(hallucinated metric?)"
+            )
     # Figure references must resolve to real files.
     for m in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", paper_md):
         fig = workspace / "paper" / "body" / m.group(1)
