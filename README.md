@@ -48,9 +48,11 @@ flowchart LR
     P -->|code_guide.md| G[💻 UG implements<br/>+ runs experiments]
     G -->|code_log.md + results.json| P
     P --> W[🎓 PhD writes paper<br/>section by section]
-    W --> V{Visual inspection<br/>Article 19}
-    V -->|pass| A[📦 Archive + PDF]
-    V -->|fail| W
+    W <-->|evidence requests,<br/>venue questions| M
+    W <-->|comparison figures,<br/>figure regeneration| G
+    W --> S{Self-inspection loop<br/>+ Article 19}
+    S -->|defects| W
+    S -->|clean| A[📦 Archive + PDF]
 ```
 
 The PhD reviews the workers **passively** (on every report) and **actively**

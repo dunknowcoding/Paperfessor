@@ -143,7 +143,11 @@ def _method_strategy(
     recent = [
         a for a in archived
         if dir_key and dir_key in str(a.get("research_direction", "")).lower()
-    ] or archived
+    ]
+    if not recent:
+        # A changed topic has NO improvable history — the paper starts
+        # from scratch; other topics' failures are irrelevant here.
+        return "new", "", ""
     last = max(recent, key=lambda a: str(a.get("archived_at", "")))
     if str(last.get("success")).lower() == "true":
         return "new", "", ""
@@ -591,7 +595,13 @@ def _phase_plan(
     # not only what failed. The planner must exploit proven strengths
     # (e.g. a method family that beat the baselines) while still
     # producing something new.
-    wins = [a for a in archived if str(a.get("success")).lower() == "true"]
+    _dir_key = _slug_prefix(direction)
+    wins = [
+        a for a in archived
+        if str(a.get("success")).lower() == "true"
+        and (not _dir_key
+             or _dir_key in str(a.get("research_direction", "")).lower())
+    ]
     wins_summary = (
         "\n".join(f"- {a.get('method', '?')}" for a in wins[-3:])
         or "(no successful attempt yet)"
@@ -660,7 +670,10 @@ def _phase_plan(
             f"  METHOD: <short name, max 8 words>\n"
             f"  WHY: <one sentence on novelty and feasibility>\n"
             f"  DIFFERS-FROM: <one sentence: how it differs from the closest existing approach above>\n"
-            f"  FIRST-STEP: <what the MS should survey first>"
+            f"  FIRST-STEP: <what the MS should survey first>\n"
+            f"  ADAPT: <which SOFT boundaries you adapt for this topic and "
+            f"why (metrics, acceleration, balance, structure), or "
+            f"'defaults' if none>"
         )
     # Use a long, structured system prompt. Earlier diagnostics showed
     # the LLM returns empty when the system is short and the user is
@@ -682,9 +695,22 @@ def _phase_plan(
     text = _call_llm_with_retry(
         router, "innovator", "phd",
         system=system,
-        user=prompt, max_tokens=512, temperature=0.2,
+        user=prompt, max_tokens=640, temperature=0.2,
     )
     method = _parse_method(text) or _fallback_method(direction)
+    # Soft-boundary adaptations are a DECLARED decision: whatever the
+    # PhD adapts for this topic goes on the record so supervision can
+    # audit it (an undeclared deviation is a defect).
+    adapt_m = re.search(r"^\s*ADAPT:\s*(.+)$", text, re.M | re.I)
+    adaptations = adapt_m.group(1).strip()[:300] if adapt_m else "defaults"
+    phd.append_doc_memo(
+        user_request=direction,
+        method=method,
+        stage="plan:boundary-adaptations",
+        stage_goal="soft-boundary adaptations declared for this topic",
+        lessons=f"ADAPT: {adaptations}",
+        stage_complete=True,
+    )
     archived_count = len(phd.list_archived())
     phd.append_doc_memo(
         user_request=direction,
@@ -1310,6 +1336,28 @@ def _phase_code(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("dataset sample figure failed: %s", exc)
+    # Qualitative comparison figure (PhD-dispatched, UG-executed):
+    # every method's REAL score curve over the same anomaly-dense
+    # segment — the visual counterpart of the results table.
+    try:
+        from paperfessor.research.experiments import plot_qualitative_comparison
+        plot_qualitative_comparison(
+            smoke_info.path,
+            ug.workspace / "src" / "figures" / "qualitative_comparison.png",
+            proposed_model_path=model_path if model_ok else None,
+            proposed_name=f"{method.split()[0] if method else 'Proposed'} (ours)",
+        )
+        ug.write_code_log(
+            subject="Qualitative comparison figure",
+            content=(
+                "Rendered per-method anomaly-score curves over the "
+                "anomaly-dense test segment (PhD-dispatched); file: "
+                "src/figures/qualitative_comparison.png"
+            ),
+            task_ref="fig-qual",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("qualitative comparison figure failed: %s", exc)
 
     # 4. Honest report to code_log.md. `model_status:` is the marker
     #    the readiness gate reads — never write 'ok' unless the
@@ -1465,18 +1513,23 @@ def _phase_write(
             logger.warning("supplementary MS search failed; writing with existing evidence")
     readiness = _assess_run_readiness(phd.workspace, None)
 
-    # Self-evolution: failure reasons from every archived past attempt
-    # ride along in the writer's system prompt as an avoid-list.
-    lessons = _past_lessons(phd)
+    # Self-evolution: failure reasons from past attempts IN THIS
+    # DIRECTION ride along in the writer's system prompt as an
+    # avoid-list (topic-scoped — a changed topic starts clean).
+    lessons = _past_lessons(phd, direction)
 
     # Pinned facts travel with EVERY write and revision call — a
     # revision that lacks them can re-introduce contradictions the
     # original prompts prevented (observed: a round-3 redraft wrote
     # a corpus count of 12 against Related Work's 18).
+    from paperfessor.policy import topic_rules_for
+    topic_rules = topic_rules_for(direction)
     facts_block = (
         f"\n\nPINNED FACTS (every section must agree with these exactly):\n"
         f"- surveyed corpus size: EXACTLY {len(evidence)} papers\n"
         f"- {_results_headline(phd.workspace) or 'no experiments were run: no numbers may be stated'}"
+        + (("\nTOPIC RULES (hard): " + "; ".join(topic_rules))
+           if topic_rules else "")
     )
 
     def _writer_system(section_id: str) -> str:
@@ -1541,6 +1594,55 @@ def _phase_write(
         feedback = _review_section(section_id, cleaned, phd.workspace)
         if feedback and section_source == "llm":
             phd.set_status(PhDStatus.REVIEWING)
+            # Per-section PhD<->MS collaboration: when the section is
+            # too thin to carry its claims, the PhD dispatches the MS
+            # for targeted supporting evidence (real papers, real
+            # abstracts), verifies it arrived, and hands it to the
+            # redraft — theory gets backed by sources, and contrasts
+            # can honestly highlight where ours differs.
+            support_block = ""
+            if ("too thin" in feedback and ms is not None
+                    and section_id in ("intro", "related", "method", "analysis")):
+                try:
+                    support = ms.search_papers(
+                        direction, max_arxiv=6, max_venue=4,
+                        relevance_cutoff=0.0,
+                        required_tokens=_derive_anchor_tokens(direction),
+                    )
+                    bullets = [
+                        f"- {p.short_cite()}: {(p.abstract or '')[:180]}"
+                        for p in support[:6]
+                    ]
+                    if bullets:
+                        support_block = (
+                            "\n\nSupporting evidence gathered by the "
+                            "literature survey (REAL papers — cite them "
+                            "author-year where they back a claim, and use "
+                            "contrasts to show precisely where the proposed "
+                            "method differs):\n" + "\n".join(bullets)
+                        )
+                        ms.write_research_log(
+                            subject=f"Section support: {title}",
+                            content=(
+                                "PhD requested supporting evidence for a "
+                                f"thin section; provided {len(bullets)} "
+                                "sourced items.\n" + "\n".join(bullets)
+                            ),
+                            task_ref="section-support",
+                        )
+                        phd.append_doc_memo(
+                            user_request=f"section support: {title}",
+                            method=method, stage=f"write:{section_id}:support",
+                            ms_summary=f"{len(bullets)} evidence items delivered",
+                            interaction_ms=(
+                                "PhD dispatched targeted evidence request; "
+                                "MS reported to research_log"
+                            ),
+                            stage_goal="section claims backed by sources",
+                            stage_complete=True,
+                        )
+                except Exception:  # noqa: BLE001
+                    logger.warning("section support search failed; redrafting without it")
             redraft = _call_llm_with_retry(
                 router, "writer", "phd",
                 system=_writer_system(section_id),
@@ -1548,8 +1650,9 @@ def _phase_write(
                     user_prompt
                     + "\n\nYour previous draft was REJECTED by the supervising "
                     "review for these reasons — fix every one and return the "
-                    f"full corrected section:\n{feedback}\n\n"
-                    f"Previous draft:\n{cleaned[:4000]}"
+                    f"full corrected section:\n{feedback}"
+                    + support_block
+                    + f"\n\nPrevious draft:\n{cleaned[:4000]}"
                 ),
                 max_tokens=max_tokens,
             )
@@ -1632,7 +1735,10 @@ def _phase_write(
             return False, "stale (predates this run's results)"
         return True, "ok"
 
-    section_figures: dict[str, list[str]] = {"3. Method": [], "4. Experimental Setup": []}
+    section_figures: dict[str, list[str]] = {
+        "3. Method": [], "4. Experimental Setup": [],
+        "5. Analysis and Discussion": [],
+    }
     figure_audit: list[str] = []
     bd = paper_figures_dir / "block_diagram.png"
     ok, why = _figure_ok(bd)
@@ -1664,6 +1770,22 @@ def _phase_write(
                     return False
                 info = _ds.fetch(first, ug.workspace)
                 plot_dataset_sample(info.path, out)
+            elif fname == "qualitative_comparison.png":
+                from paperfessor.research import datasets as _ds
+                from paperfessor.research.experiments import (
+                    plot_qualitative_comparison,
+                )
+                first = next(iter(results.get("manifests", {})), None)
+                if not first:
+                    return False
+                info = _ds.fetch(first, ug.workspace)
+                model_files = sorted(
+                    (ug.workspace / "src" / "code").glob("model_*.py"))
+                plot_qualitative_comparison(
+                    info.path, out,
+                    proposed_model_path=model_files[-1] if model_files else None,
+                    proposed_name=f"{method.split()[0]} (ours)",
+                )
             else:
                 return False
             ug.write_code_log(
@@ -1686,6 +1808,11 @@ def _phase_write(
         ("dataset_sample.png",
          "A real test segment with labeled anomaly regions shaded.",
          "4. Experimental Setup"),
+        ("qualitative_comparison.png",
+         "Qualitative comparison: each method's anomaly-score curve "
+         "(min-max normalized per panel) over the same anomaly-dense "
+         "test segment; shaded regions are labeled anomalies.",
+         "5. Analysis and Discussion"),
     ):
         src_fig = phd._workspace / "src" / "figures" / fname
         ok, why = _figure_ok(src_fig)
@@ -2801,15 +2928,21 @@ def _defect_targets_section(defect: str, title: str, body: str) -> bool:
     return False
 
 
-def _past_lessons(phd: PhDStudent, *, max_chars: int = 400) -> str:
-    """Self-evolution memory: distinct failure reasons from ALL past
-    archived attempts, distilled into an avoid-list for the writer.
-    This is how earlier runs' mistakes actively shape later papers."""
+def _past_lessons(phd: PhDStudent, direction: str = "",
+                  *, max_chars: int = 400) -> str:
+    """Self-evolution memory: distinct failure reasons from past
+    archived attempts IN THIS DIRECTION, distilled into an avoid-list
+    for the writer. Scoped to the topic: when the topic changes, the
+    paper starts fresh and other topics' failures must not shape it."""
     reasons: list[str] = []
     seen: set[str] = set()
+    dir_key = _slug_prefix(direction) if direction else ""
     try:
         for a in phd.list_archived():
             if str(a.get("success")).lower() == "true":
+                continue
+            if dir_key and dir_key not in str(
+                    a.get("research_direction", "")).lower():
                 continue
             for chunk in str(a.get("reason", "")).split(";"):
                 c = chunk.strip()

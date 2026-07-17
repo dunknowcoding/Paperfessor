@@ -37,6 +37,11 @@ def compose_system_prompt(group: str, system: str, *, with_skills: bool = True) 
     if system.strip():
         blocks.append(system.strip())
     blocks.append(_operating_guardrails(group))
+    try:
+        from paperfessor.policy import render_boundaries_prompt
+        blocks.append(render_boundaries_prompt())
+    except Exception:  # noqa: BLE001
+        pass
     if with_skills:
         skills = list_skills(group)
         skill_block = format_for_prompt(skills)

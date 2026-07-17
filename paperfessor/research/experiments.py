@@ -536,6 +536,107 @@ def plot_results(rows: list[MetricRow], out_path: Path) -> Path | None:
     return out_path
 
 
+def plot_qualitative_comparison(
+    dataset_dir: Path, out_path: Path,
+    *, proposed_model_path: Path | None = None,
+    proposed_name: str = "Proposed (ours)",
+    max_points: int = 2000, seed: int = 0,
+) -> Path | None:
+    """Qualitative comparison figure: the raw signal with labeled
+    anomaly windows on top, then one panel per method showing its
+    REAL anomaly-score curve over the same segment (min-max
+    normalized per panel for shape comparison — stated in the
+    caption). Every curve is computed by actually running the
+    method; nothing is drawn by hand.
+    """
+    train_x, test_x, test_y, _ = _load_split(dataset_dir)
+    if len(train_x) > 20000:
+        train_x = train_x[::len(train_x) // 20000 + 1]
+    # Anomaly-dense window (same logic as the sample figure).
+    n = len(test_x)
+    w = min(n, max_points)
+    if n > w and test_y.sum() > 0:
+        density = np.convolve(test_y.astype(float), np.ones(w), mode="valid")
+        start = int(np.argmax(density))
+    else:
+        start = 0
+    sl = slice(start, start + w)
+    curves: list[tuple[str, np.ndarray]] = []
+    for name, fn in BASELINES.items():
+        try:
+            curves.append((name, np.asarray(fn(train_x, test_x, seed))[sl]))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("qualitative: baseline %s failed: %s", name, exc)
+    if proposed_model_path is not None and proposed_model_path.is_file():
+        try:
+            capped = dataset_dir / "train_x_capped.npy"
+            if not capped.is_file():
+                np.save(capped, train_x)
+            scores = run_llm_model(
+                proposed_model_path, capped, dataset_dir / "test_x.npy", seed,
+            )
+            curves.append((proposed_name, np.asarray(scores)[sl]))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("qualitative: proposed model failed: %s", exc)
+    if not curves:
+        return None
+    # Ours on top of the method panels, then canonical baseline order.
+    curves.sort(key=lambda c: (not c[0].endswith("(ours)"),
+                               _METHOD_ORDER_HINT.index(c[0])
+                               if c[0] in _METHOD_ORDER_HINT else 99))
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    n_panels = 1 + len(curves)
+    # Wide aspect so the figure lands in a two-column slot.
+    fig, axes = plt.subplots(
+        n_panels, 1, figsize=(7.6, max(4.0, 0.85 * n_panels)),
+        dpi=200, sharex=True, squeeze=False,
+    )
+    t = np.arange(start, start + w)
+    seg_y = test_y[sl]
+
+    def _shade(ax) -> None:
+        in_a, a0 = False, 0
+        for i, lab in enumerate(list(seg_y) + [0]):
+            if lab and not in_a:
+                in_a, a0 = True, i
+            elif not lab and in_a:
+                in_a = False
+                ax.axvspan(t[a0], t[min(i, w - 1)],
+                           color="#D55E00", alpha=0.12, lw=0)
+
+    ax0 = axes[0][0]
+    ax0.plot(t, test_x[sl, 0], lw=0.7, color=_INK)
+    _shade(ax0)
+    ax0.set_ylabel("signal\n(ch 0)", fontsize=9, color=_INK)
+    ax0.set_title(
+        f"{dataset_dir.name.split('@', 1)[0]}: raw signal and per-method "
+        f"anomaly scores (shaded = labeled anomaly)",
+        fontsize=10, color=_INK,
+    )
+    for (name, curve), axrow in zip(curves, axes[1:]):
+        ax = axrow[0]
+        lo, hi = float(np.min(curve)), float(np.max(curve))
+        norm = (curve - lo) / (hi - lo) if hi > lo else curve * 0
+        ax.plot(t, norm, lw=0.9, color=_method_color(name))
+        _shade(ax)
+        ax.set_ylabel(name.replace(" (ours)", "\n(ours)"),
+                      fontsize=8.5, color=_INK)
+        ax.set_ylim(-0.05, 1.1)
+    for axrow in axes:
+        ax = axrow[0]
+        ax.tick_params(labelsize=8, colors=_MUTED_INK)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.spines[["left", "bottom"]].set_color("#AAAAAA")
+    axes[-1][0].set_xlabel("time index", fontsize=9, color=_INK)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path)
+    plt.close(fig)
+    return out_path
+
+
 def plot_dataset_sample(dataset_dir: Path, out_path: Path,
                         *, max_points: int = 3000) -> Path | None:
     """Plot a real window of the test series with anomaly regions
@@ -605,6 +706,7 @@ def plot_dataset_sample(dataset_dir: Path, out_path: Path,
 __all__ = [
     "BASELINES",
     "plot_dataset_sample",
+    "plot_qualitative_comparison",
     "MetricRow",
     "ModelRunError",
     "plot_results",
