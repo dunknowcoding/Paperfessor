@@ -1372,10 +1372,10 @@ def _phase_write(
     # inside its own section (block diagram in Method, results +
     # data-sample figures in Experimental Setup). Appending figures
     # after the Conclusion produced float-graveyard final pages.
-    parts.append("## References")
-    parts.append("")
-    # References: cite every paper we read, by short cite. The BibTeX
-    # is a TODO; the survey log has the full metadata.
+    # References: cite every paper we read, by short cite. Collected
+    # into ``reference_lines`` so the self-inspection loop can
+    # reassemble the paper without re-running the searches.
+    reference_lines: list[str] = []
     seen: set[str] = set()
     ref_count = 0
     for ev in evidence:
@@ -1384,14 +1384,16 @@ def _phase_write(
             continue
         seen.add(cite)
         if ev.paper.arxiv_id:
-            parts.append(f"- {ev.paper.authors[0].split()[-1] if ev.paper.authors else 'anon'} "
-                         f"et al. ({ev.paper.year}). *{ev.paper.title}*. "
-                         f"arXiv:{ev.paper.arxiv_id}. {ev.paper.source_url}")
+            reference_lines.append(
+                f"- {ev.paper.authors[0].split()[-1] if ev.paper.authors else 'anon'} "
+                f"et al. ({ev.paper.year}). *{ev.paper.title}*. "
+                f"arXiv:{ev.paper.arxiv_id}. {ev.paper.source_url}")
             ref_count += 1
         elif ev.paper.source_url:
-            parts.append(f"- {ev.paper.authors[0].split()[-1] if ev.paper.authors else 'anon'} "
-                         f"et al. ({ev.paper.year}). *{ev.paper.title}*. "
-                         f"{ev.paper.venue}. {ev.paper.source_url}")
+            reference_lines.append(
+                f"- {ev.paper.authors[0].split()[-1] if ev.paper.authors else 'anon'} "
+                f"et al. ({ev.paper.year}). *{ev.paper.title}*. "
+                f"{ev.paper.venue}. {ev.paper.source_url}")
             ref_count += 1
     # Fallback: if the survey gave us zero readable papers, the LLM
     # body still cites [1] [2] etc. Reuse the LLM's own References
@@ -1443,19 +1445,88 @@ def _phase_write(
                     f"arXiv:{aid}. https://arxiv.org/abs/{aid}"
                 )
                 # Avoid duplicates
-                if any(aid in line for line in parts if "arXiv" in line):
+                if any(aid in line for line in reference_lines):
                     continue
-                parts.append(ref_text)
+                reference_lines.append(ref_text)
                 ref_count += 1
                 break
     if ref_count == 0:
         # Last-resort: emit a single "no papers found" line so the
         # References section is non-empty.
-        parts.append(
+        reference_lines.append(
             "- (No externally-indexed paper was retrievable in the survey window; "
             "all prior-art citations in the body reference the survey log.)"
         )
+    parts.append("## References")
+    parts.append("")
+    parts.extend(reference_lines)
     paper_path.write_text("\n".join(parts), encoding="utf-8")
+
+    # 0.5 PhD whole-paper SELF-INSPECTION loop (per spec: inspect the
+    # assembled paper comprehensively, fix the problems one by one,
+    # check again, and repeat until no problems remain). Deterministic
+    # defect scans + the PhD re-reading its own full paper; defective
+    # sections are redrafted with the concrete defect list and the
+    # paper is reassembled. Bounded at 3 rounds.
+    if not readiness.force_provisional_write:
+        for inspect_round in range(1, 4):
+            md_now = paper_path.read_text(encoding="utf-8")
+            defects = _whole_paper_defects(md_now, phd.workspace)
+            defects += _llm_paper_review(
+                router, md_now, phd.workspace, direction, method,
+            )
+            phd.append_article_memo(
+                direction=direction, method=method,
+                progress=f"self-inspection round {inspect_round}",
+                status=(f"{len(defects)} defects" if defects else "clean"),
+                text_check="; ".join(defects[:6]) or "no defects found",
+            )
+            if not defects:
+                break
+            fixed_any = False
+            new_sections: list[tuple[str, str]] = []
+            for title, body in sections:
+                relevant = [
+                    d for d in defects
+                    if _defect_targets_section(d, title, body)
+                ]
+                if not relevant:
+                    new_sections.append((title, body))
+                    continue
+                sec_id = _SECTION_ID_BY_TITLE.get(title, "")
+                redraft = _call_llm_with_retry(
+                    router, "writer", "phd",
+                    system=_writer_system(sec_id or "revision"),
+                    user=(
+                        f"Revise this section of the paper to fix EVERY "
+                        f"defect below. Keep everything that is correct; "
+                        f"change only what the defects require. Return the "
+                        f"full corrected section body (no heading).\n\n"
+                        f"Defects:\n"
+                        + "\n".join(f"- {d}" for d in relevant[:8])
+                        + f"\n\nSection '{title}':\n{body[:5000]}"
+                    ),
+                    max_tokens=1600,
+                )
+                if redraft.strip():
+                    nb = _clean_section_body(redraft, title)
+                    if sec_id == "experiments":
+                        nb = _enforce_experiments_subsections(
+                            nb, direction=direction, method=method,
+                            evidence=evidence, workspace=phd.workspace,
+                        )
+                    new_sections.append((title, nb.strip()))
+                    fixed_any = True
+                else:
+                    new_sections.append((title, body))
+            sections = new_sections
+            if not fixed_any:
+                break
+            paper_path.write_text(
+                _reassemble_paper(method, sections, section_figures,
+                                  reference_lines),
+                encoding="utf-8",
+            )
     # 1. Ask the PhD to pick the right venue for this direction and
     #    try to download its official template. The .tex writer will
     #    use whatever class the PhD returns.
@@ -1773,6 +1844,150 @@ def _clean_section_body(text: str, title: str) -> str:
     out = re.sub(r"\n{3,}", "\n\n", out)
     # Trim trailing whitespace.
     return out.rstrip()
+
+
+_SECTION_ID_BY_TITLE: dict[str, str] = {
+    "Abstract": "abstract",
+    "1. Introduction": "intro",
+    "2. Related Work": "related",
+    "3. Method": "method",
+    "4. Experimental Setup": "experiments",
+    "5. Conclusion": "conclusion",
+    "6. Limitations and Future Work": "limitations",
+}
+
+
+def _reassemble_paper(
+    method: str,
+    sections: list[tuple[str, str]],
+    section_figures: dict[str, list[str]],
+    reference_lines: list[str],
+) -> str:
+    """Rebuild paper.md from its parts (used by the self-inspection
+    loop after sections are revised)."""
+    parts: list[str] = [f"# {method}", ""]
+    for title, body in sections:
+        parts.append(f"## {title}")
+        parts.append("")
+        parts.append(body)
+        parts.append("")
+        for fig_md in section_figures.get(title, ()):
+            parts.append(fig_md)
+            parts.append("")
+    parts.append("## References")
+    parts.append("")
+    parts.extend(reference_lines)
+    return "\n".join(parts)
+
+
+def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
+    """Deterministic whole-paper defect scan (the PhD's self-check).
+
+    Codifies the reviewer findings from development: hallucinated
+    metrics, internal wording, dangling figure references, body
+    citations missing from the References list, thin references.
+    """
+    defects: list[str] = []
+    body, _, refs_block = paper_md.partition("## References")
+    lowered = body.lower()
+    for banned in ("the ms ", "the ug ", "master's student", "undergraduate",
+                   "paperfessor", "what changed", "doc_memo", "article_memo"):
+        if banned in lowered:
+            defects.append(
+                f"internal wording {banned.strip()!r} appears in the paper body"
+            )
+    valid = _measured_number_tokens(workspace)
+    if valid:
+        for tok in sorted(set(re.findall(r"\b0\.\d{3}\b", body))):
+            if tok not in valid:
+                defects.append(
+                    f"number {tok} does not match any measured value "
+                    f"(hallucinated metric?)"
+                )
+    # Figure references must resolve to real files.
+    for m in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", paper_md):
+        fig = workspace / "paper" / "body" / m.group(1)
+        if not fig.is_file():
+            defects.append(f"figure reference {m.group(1)} points to no file")
+    # Author-year citations in the body must appear in References.
+    surnames_in_refs = set(
+        re.findall(r"^-\s+(\S+)\s+et al\.", refs_block, re.M)
+    )
+    cited = set(re.findall(r"\(([A-Z][a-zA-Z\-']+) et al\.,? \d{4}\)", body))
+    for name in sorted(cited):
+        if name not in surnames_in_refs:
+            defects.append(
+                f"body cites ({name} et al.) but the References list has "
+                f"no such entry"
+            )
+    n_refs = len([l for l in refs_block.splitlines() if l.startswith("- ")])
+    if n_refs < 10:
+        defects.append(f"only {n_refs} references (venue norm is 18+)")
+    return defects
+
+
+def _llm_paper_review(
+    router: LLMRouter, paper_md: str, workspace: Path,
+    direction: str, method: str,
+) -> list[str]:
+    """The PhD re-reads its own full paper and lists concrete defects.
+
+    Grounded review: the prompt carries the measured results, so
+    unsupported claims are catchable. Output is one defect per line
+    ("SECTION: defect ...") or the single word NONE. Failures return
+    an empty list — the deterministic scan still applies.
+    """
+    table = _results_table_md(workspace) or "(no measured results)"
+    try:
+        raw = _call_llm_with_retry(
+            router, "reviewer", "phd",
+            system=(
+                "You are the supervising professor doing the FINAL read of "
+                "your own paper before submission. Be maximally critical "
+                "about correctness, not style: flag (1) any claim not "
+                "supported by the measured results below, (2) any dataset "
+                "or baseline described as evaluated that is not in the "
+                "results, (3) contradictions between sections, (4) numbers "
+                "that disagree with the results table, (5) unclear or "
+                "broken sentences. Output ONE defect per line in the form "
+                "'<SECTION TITLE>: <defect>'. If the paper has no such "
+                "defects, output exactly: NONE"
+            ),
+            user=(
+                f"Measured results (ground truth):\n{table}\n\n"
+                f"Paper (direction: {direction}; method: {method}):\n\n"
+                + paper_md[:24000]
+            ),
+            max_tokens=900,
+            attempts=2,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip().lstrip("-* ")
+        if not line or line.upper() == "NONE":
+            continue
+        if ":" in line and 10 < len(line) < 400:
+            out.append(line)
+    return out[:10]
+
+
+def _defect_targets_section(defect: str, title: str, body: str) -> bool:
+    """Does this defect concern this section? Match by section-title
+    prefix (LLM defects) or by offending token present in the body
+    (deterministic defects)."""
+    d = defect.lower()
+    t = title.lower()
+    if d.startswith(t) or t in d.split(":", 1)[0]:
+        return True
+    # Deterministic defects carry the offending token in quotes or as
+    # a number — check the body for it.
+    m = re.search(r"'([^']+)'|number (0\.\d{3})|\(([A-Za-z\-']+) et al", defect)
+    if m:
+        token = next(g for g in m.groups() if g)
+        return token.lower() in body.lower()
+    return False
 
 
 def _past_lessons(phd: PhDStudent, *, max_chars: int = 400) -> str:
