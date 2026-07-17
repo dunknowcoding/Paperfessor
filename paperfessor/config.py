@@ -114,12 +114,18 @@ class Settings(BaseSettings):
     # --- Output ------------------------------------------------------------
     output_root: Path = Field(default=Path("./output"))
 
-    # --- UG sandbox permissions (user-controlled) --------------------------
-    # The UG's generated experiment code always runs in a subprocess
-    # harness; these settings control what that sandbox permits.
-    # Shell/conda/venv/git remain unavailable to the UG by design.
+    # --- UG permissions (user-controlled; defaults ALL enabled) -----------
+    # Two layers: (1) the strict sandbox for GENERATED experiment
+    # code (network/file/shell never whitelistable there); (2) the
+    # UG agent's own TOOLBELT — local tool execution (matlab -batch,
+    # Rscript, office/plotting CLIs, zip, tests), package installs,
+    # editing/inspecting its own code — every use logged to
+    # code_log.md and confined to the workspace.
     ug_allow_gpu: bool = True            # permit torch+CUDA when justified
+    ug_allow_local_tools: bool = True    # run_tool(): local CLIs (no shell=True)
+    ug_allow_installs: bool = True       # pip_install(): recorded in src/tools
     ug_sandbox_timeout_seconds: int = Field(default=240, ge=30, le=3600)
+    ug_tool_timeout_seconds: int = Field(default=300, ge=10, le=3600)
     ug_extra_allowed_imports: str = ""   # comma-separated, e.g. "numba,jax"
 
     # --- Coordination (full user control via CLI --flags / GUI) -----------
