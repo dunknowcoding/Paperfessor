@@ -673,6 +673,18 @@ class PhDStudent(_WorkspaceAgent):
             # the metadata's paper_result will read
             # "(no PDF; build failed)".
             zip_path = None
+        # Post-mortem: the tail of article_memo (this run's writing
+        # memory) rides into the permanent archive, so the next
+        # attempt can decide IMPROVE vs ABANDON with real context —
+        # this is how the per-run memo contributes across runs.
+        post_mortem = ""
+        try:
+            memo = self._workspace / "article_memo.md"
+            if memo.is_file():
+                text = memo.read_text(encoding="utf-8")
+                post_mortem = text[-1200:].strip()
+        except Exception:  # noqa: BLE001
+            pass
         meta = {
             "research_area": research_area,
             "research_direction": research_direction,
@@ -680,6 +692,7 @@ class PhDStudent(_WorkspaceAgent):
             "method": method,
             "success": success,
             "reason": reason,
+            "post_mortem": post_mortem,
             "paper_result": (
                 str(zip_path.relative_to(self._workspace))
                 if zip_path is not None else "(no PDF; build failed)"

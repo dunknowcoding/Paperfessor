@@ -96,6 +96,34 @@ def test_defect_routing_to_section():
     )
 
 
+def test_method_strategy_improve_then_abandon():
+    from paperfessor.runner.pipeline import CoordinationPolicy, _method_strategy
+    policy = CoordinationPolicy(max_method_rounds=2)
+    base = {
+        "research_direction": "anomaly-detection-in-m",
+        "success": "false",
+        "reason": "proposed method won best F1 on no dataset (req: iterate ...)",
+        "post_mortem": "band variance under-determined on short series",
+        "archived_at": "2026-07-16T20:00:00",
+        "method": "FBD",
+    }
+    # One failed competitiveness attempt -> improve.
+    mode, method, pm = _method_strategy([base], "anomaly detection in multivariate time series", policy)
+    assert mode == "improve" and method == "FBD" and "variance" in pm
+    # Rounds exhausted -> new method.
+    second = dict(base, archived_at="2026-07-16T21:00:00")
+    mode, _, _ = _method_strategy([base, second], "anomaly detection in multivariate time series", policy)
+    assert mode == "new"
+    # Structural failure (not competitiveness) -> new method.
+    broken = dict(base, reason="UG returned a fallback skeleton")
+    mode, _, _ = _method_strategy([broken], "anomaly detection in multivariate time series", policy)
+    assert mode == "new"
+    # Success -> new method (never re-run a solved method).
+    solved = dict(base, success="true")
+    mode, _, _ = _method_strategy([solved], "anomaly detection in multivariate time series", policy)
+    assert mode == "new"
+
+
 def test_reassemble_round_trip():
     md = _reassemble_paper(
         "M", [("Abstract", "body A"), ("3. Method", "body B")],

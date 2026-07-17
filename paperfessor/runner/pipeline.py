@@ -71,6 +71,91 @@ PHASE_BUDGETS: dict[str, float] = {
 POLL_INTERVAL: float = 5.0
 
 
+@dataclass(frozen=True)
+class CoordinationPolicy:
+    """Every loop in the 3-agent system is bounded HERE, in one
+    place, so coordination is efficient and no agent can run away.
+
+    - ``max_method_rounds``: how many runs may try to IMPROVE the
+      same method before it is declared defective and the PhD must
+      design a different one (the archive's post_mortem informs the
+      improve-vs-abandon decision).
+    - ``max_ug_rounds``: implement-verify-correct attempts for the
+      UG's model.
+    - ``max_section_redrafts``: supervisor-rejected section rewrites.
+    - ``max_inspection_rounds``: whole-paper self-inspection cycles.
+    - ``max_llm_calls``: hard per-run LLM budget; once exceeded, all
+      remaining LLM steps degrade to deterministic fallbacks instead
+      of burning tokens in a loop.
+    """
+
+    max_method_rounds: int = 3
+    max_ug_rounds: int = 4
+    max_section_redrafts: int = 1
+    max_inspection_rounds: int = 3
+    max_llm_calls: int = 80
+
+
+POLICY = CoordinationPolicy()
+
+
+def _llm_budget_left(router: LLMRouter, policy: CoordinationPolicy = POLICY) -> bool:
+    """True while the run is under its LLM-call budget."""
+    try:
+        calls = int(router.usage_snapshot()["totals"].get("calls", 0))
+    except Exception:  # noqa: BLE001
+        return True
+    return calls < policy.max_llm_calls
+
+
+def _method_strategy(
+    archived: list[dict], direction: str,
+    policy: CoordinationPolicy = POLICY,
+) -> tuple[str, str, str]:
+    """Decide IMPROVE vs NEW for the next attempt.
+
+    Returns ``(mode, prior_method, post_mortem)`` where mode is
+    ``"improve"`` (the most recent attempt in this direction failed
+    only on competitiveness and has rounds left) or ``"new"``.
+
+    The rule (per spec): a method gets at most ``max_method_rounds``
+    improvement attempts; once exhausted — or when it failed for a
+    structural reason (theory/model defect, no data) — it is
+    treated as vetoed and the PhD designs something different.
+    """
+    if not archived:
+        return "new", "", ""
+    dir_key = _slug_prefix(direction)
+    recent = [
+        a for a in archived
+        if dir_key and dir_key in str(a.get("research_direction", "")).lower()
+    ] or archived
+    last = max(recent, key=lambda a: str(a.get("archived_at", "")))
+    if str(last.get("success")).lower() == "true":
+        return "new", "", ""
+    reason = str(last.get("reason", "")).lower()
+    # Only a pure competitiveness failure is improvable; anything
+    # structural (no data, broken implementation, hallucination)
+    # means the attempt was defective end-to-end.
+    improvable = ("won best f1 on no dataset" in reason
+                  or "not competitive" in reason)
+    if not improvable:
+        return "new", "", ""
+    method = str(last.get("method", ""))
+    attempts = sum(
+        1 for a in archived
+        if str(a.get("method", "")) == method
+    )
+    if attempts >= policy.max_method_rounds:
+        return "new", "", ""
+    return "improve", method, str(last.get("post_mortem", ""))[:800]
+
+
+def _slug_prefix(direction: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", direction.lower()).strip("-")
+    return s[:20]
+
+
 @dataclass
 class PipelineResult:
     direction: str
@@ -483,20 +568,45 @@ def _phase_plan(
         except Exception:  # noqa: BLE001
             logger.warning("pre-survey failed; PhD plans without it")
     existing_summary = "\n".join(existing_lines) or "(pre-survey unavailable)"
-    prompt = (
-        f"You are the PhD student on a new paper. The user said:\n\n"
-        f"  direction: {direction}\n\n"
-        f"Existing approaches found by the MS's quick pre-survey "
-        f"(your method must be meaningfully DIFFERENT from all of these, "
-        f"not a rebrand):\n{existing_summary}\n\n"
-        f"Prior attempts in the archive (skip methods that already succeeded or were vetoed):\n"
-        f"{archived_summary}\n\n"
-        f"Propose ONE concrete NOVEL method to attempt. Format your reply as:\n"
-        f"  METHOD: <short name, max 8 words>\n"
-        f"  WHY: <one sentence on novelty and feasibility>\n"
-        f"  DIFFERS-FROM: <one sentence: how it differs from the closest existing approach above>\n"
-        f"  FIRST-STEP: <what the MS should survey first>"
-    )
+    # Coordination: IMPROVE the previous method (bounded rounds) or
+    # design a NEW one. The archive's post-mortem — extracted from
+    # the previous run's article_memo — feeds the improvement.
+    mode, prior_method, post_mortem = _method_strategy(archived, direction)
+    if mode == "improve":
+        prompt = (
+            f"You are the PhD student. The previous attempt in this "
+            f"direction used the method below and produced a real, honest "
+            f"paper — but the method did not beat the baselines. You have "
+            f"a limited number of improvement rounds before this method "
+            f"is declared defective, so make this one count.\n\n"
+            f"  direction: {direction}\n"
+            f"  prior method: {prior_method}\n\n"
+            f"Post-mortem from the previous attempt (from the writing "
+            f"memory):\n{post_mortem or '(none recorded)'}\n\n"
+            f"Design an IMPROVED VARIANT of the prior method: keep its "
+            f"core idea, fix the specific weakness the post-mortem "
+            f"exposes, and give the variant a distinct name (do NOT "
+            f"reuse the prior name verbatim). Format your reply as:\n"
+            f"  METHOD: <short name, max 8 words>\n"
+            f"  WHY: <one sentence: which weakness this fixes and how>\n"
+            f"  DIFFERS-FROM: <one sentence vs the prior variant>\n"
+            f"  FIRST-STEP: <what the MS should survey first>"
+        )
+    else:
+        prompt = (
+            f"You are the PhD student on a new paper. The user said:\n\n"
+            f"  direction: {direction}\n\n"
+            f"Existing approaches found by the MS's quick pre-survey "
+            f"(your method must be meaningfully DIFFERENT from all of these, "
+            f"not a rebrand):\n{existing_summary}\n\n"
+            f"Prior attempts in the archive (skip methods that already succeeded or were vetoed):\n"
+            f"{archived_summary}\n\n"
+            f"Propose ONE concrete NOVEL method to attempt. Format your reply as:\n"
+            f"  METHOD: <short name, max 8 words>\n"
+            f"  WHY: <one sentence on novelty and feasibility>\n"
+            f"  DIFFERS-FROM: <one sentence: how it differs from the closest existing approach above>\n"
+            f"  FIRST-STEP: <what the MS should survey first>"
+        )
     # Use a long, structured system prompt. Earlier diagnostics showed
     # the LLM returns empty when the system is short and the user is
     # long; padding the system to ~1 KB is a reliable workaround.
@@ -975,7 +1085,10 @@ def _phase_code(
     model_ok = False
     rounds: list[str] = []
     feedback = ""
-    for attempt in range(4):
+    for attempt in range(POLICY.max_ug_rounds):
+        if not _llm_budget_left(router):
+            rounds.append(f"round {attempt + 1}: skipped (LLM budget exhausted)")
+            break
         ug.set_status(UndergradStatus.CODING)
         reply = ug.ask(
             system=(
@@ -1552,7 +1665,7 @@ def _phase_write(
     # sections are redrafted with the concrete defect list and the
     # paper is reassembled. Bounded at 3 rounds.
     if not readiness.force_provisional_write:
-        for inspect_round in range(1, 4):
+        for inspect_round in range(1, POLICY.max_inspection_rounds + 1):
             md_now = paper_path.read_text(encoding="utf-8")
             defects = _whole_paper_defects(md_now, phd.workspace)
             defects += _llm_paper_review(
@@ -2714,6 +2827,13 @@ def _call_llm_with_retry(
     and returns an empty text. Disabling thinking makes the call
     deterministic and reliable for prose.
     """
+    # Coordination: hard per-run LLM budget. When it is spent, every
+    # remaining LLM step degrades to its deterministic fallback
+    # instead of looping on the API.
+    if not _llm_budget_left(router):
+        logger.warning("LLM budget exhausted (%s calls); %s/%s degrades to fallback",
+                       POLICY.max_llm_calls, group, role)
+        return ""
     full_system = compose_system_prompt(group, system, with_skills=with_skills)
     last = ""
     cur_temp = temperature
