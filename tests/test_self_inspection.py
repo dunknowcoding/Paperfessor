@@ -152,8 +152,15 @@ def test_resolve_missing_citations_parses_and_skips_unmatchable(monkeypatch):
     assert unresolved == ["number 0.999 does not match any measured value"]
 
 
-def test_canonical_citation_rung_needs_alias_corroboration():
+def test_canonical_citation_rung_needs_alias_corroboration(monkeypatch):
     from paperfessor.runner.pipeline import _resolve_missing_citations
+    # Keep the test offline: live rungs return nothing.
+    monkeypatch.setattr("paperfessor.research.sources.arxiv.search",
+                        lambda *a, **k: [])
+    monkeypatch.setattr("paperfessor.research.sources.openalex.search",
+                        lambda *a, **k: [])
+    monkeypatch.setattr("paperfessor.research.sources.s2.search",
+                        lambda *a, **k: [])
     refs: list[str] = []
     md = ("## 2. Related Work\n\nUSAD frames detection as adversarial "
           "reconstruction (Audibert et al., 2020).\n\n## References\n\n- x\n")
