@@ -1389,15 +1389,22 @@ def _phase_write(
         base = _section_system(section_id, direction, method)
         return base + ("\n\n" + lessons if lessons else "") + facts_block
 
+    # FULL-PAPER page discipline: unless the user asks for a short
+    # paper, the body (excluding References/Appendix) must fill the
+    # venue's page budget with dense, REAL content. Section token
+    # budgets and word targets are sized for that goal; an expansion
+    # loop after the first PDF build tops up under-filled papers.
+    page_target = int(getattr(phd._settings, "paper_max_pages", 9) or 9)
     sections: list[tuple[str, str]] = []
     for section_id, title, user_prompt, max_tokens in [
-        ("abstract", "Abstract", _abstract_prompt(direction, method, evidence, phd.workspace), 600),
-        ("intro", "1. Introduction", _intro_prompt(direction, method, evidence, phd.workspace), 1200),
-        ("related", "2. Related Work", _related_prompt(direction, method, evidence), 1000),
-        ("method", "3. Method", _method_prompt(direction, method, evidence, phd.workspace), 1300),
-        ("experiments", "4. Experimental Setup", _experiments_prompt(direction, method, evidence, phd.workspace), 2400),
-        ("conclusion", "5. Conclusion", _conclusion_prompt(direction, method, evidence, phd.workspace), 600),
-        ("limitations", "6. Limitations and Future Work", _limitations_prompt(direction, method, evidence, phd.workspace), 600),
+        ("abstract", "Abstract", _abstract_prompt(direction, method, evidence, phd.workspace), 700),
+        ("intro", "1. Introduction", _intro_prompt(direction, method, evidence, phd.workspace), 2000),
+        ("related", "2. Related Work", _related_prompt(direction, method, evidence), 2200),
+        ("method", "3. Method", _method_prompt(direction, method, evidence, phd.workspace), 2600),
+        ("experiments", "4. Experimental Setup", _experiments_prompt(direction, method, evidence, phd.workspace), 3000),
+        ("analysis", "5. Analysis and Discussion", _analysis_prompt(direction, method, evidence, phd.workspace), 2600),
+        ("conclusion", "6. Conclusion", _conclusion_prompt(direction, method, evidence, phd.workspace), 700),
+        ("limitations", "7. Limitations and Future Work", _limitations_prompt(direction, method, evidence, phd.workspace), 800),
     ]:
         if readiness.force_provisional_write:
             text = _section_fallback(section_id, direction, method, evidence)
@@ -1663,10 +1670,12 @@ def _phase_write(
     # least has a non-empty References section. We also seed a few
     # canonical time-series anomaly detection references so the
     # reviewer can map the [n] markers in the body to real work.
-    # Published papers in this area carry 20-40 references; top up
-    # with REAL canonical works (searched live on arXiv, never
-    # fabricated) when the survey alone leaves the list thin.
-    if ref_count < 15:
+    # FULL papers in this area carry 30-40 references — deep literature
+    # engagement is a quality signal. Top up with REAL canonical works
+    # (searched live, never fabricated) when the survey alone leaves
+    # the list thin; the citation resolver adds more during
+    # self-inspection as the body cites them.
+    if ref_count < 28:
         from paperfessor.research.sources.arxiv import search as _ax_search
         canonical_titles = [
             "Anomaly Transformer Time-Series Association Discrepancy",
@@ -1679,9 +1688,19 @@ def _phase_write(
             "LOF local outlier factor density based",
             "Time series anomaly detection benchmark evaluation",
             "Contrastive learning time series representation",
+            "TranAD deep transformer networks anomaly detection multivariate",
+            "Spectral residual saliency time-series anomaly detection service",
+            "LSTM encoder decoder multi-sensor anomaly detection",
+            "Temporal hierarchical one-class network anomaly detection",
+            "Deep autoencoding gaussian mixture model unsupervised anomaly",
+            "Graph neural network anomaly detection multivariate time series",
+            "Rigorous evaluation time-series anomaly detection point adjust",
+            "Comprehensive evaluation anomaly detection time series benchmark",
+            "Outlier detection review survey high-dimensional",
+            "Self-supervised representation learning time series survey",
         ]
         for title in canonical_titles:
-            if ref_count >= 18:
+            if ref_count >= 32:
                 break
             try:
                 papers = _ax_search(title, max_results=3)
@@ -1843,6 +1862,77 @@ def _phase_write(
         # sentinel. We treat the run as "tex-only" and skip the
         # visual inspect (which needs a real PDF).
         pdf_built = pdf_path.suffix.lower() == ".pdf" and pdf_path.is_file()
+        # 2.4 FULL-PAPER page utilization: the body (before References)
+        #     must fill the venue's page budget. Under-filled papers
+        #     get bounded expansion rounds: the PhD deepens the most
+        #     expandable sections with REAL content (analysis of the
+        #     measured numbers, literature engagement) and rebuilds.
+        target_body = max(3.0, float(venue.get("page_limit", 9)) - 1.0)
+        for expand_round in range(2):
+            if not pdf_built or readiness.force_provisional_write:
+                break
+            if not _llm_budget_left(router):
+                break
+            total_p, body_p = _count_body_pages(pdf_path)
+            if body_p >= target_body:
+                break
+            deficit = target_body - body_p
+            phd.append_article_memo(
+                direction=direction, method=method,
+                progress=f"page-fill round {expand_round + 1}",
+                status=f"body {body_p:.1f} pages of {target_body:.0f} target",
+                other_check=(
+                    f"full-paper mode: expanding sections to close a "
+                    f"{deficit:.1f}-page deficit"
+                ),
+            )
+            # Expand the LONG-FORM sections (never abstract/conclusion).
+            expandable = ("1. Introduction", "2. Related Work", "3. Method",
+                          "5. Analysis and Discussion")
+            new_sections = []
+            for title, body in sections:
+                if title not in expandable:
+                    new_sections.append((title, body))
+                    continue
+                sec_id = _SECTION_ID_BY_TITLE.get(title, "")
+                grown = _call_llm_with_retry(
+                    router, "writer", "phd",
+                    system=_writer_system(sec_id),
+                    user=(
+                        f"The paper body must fill {target_body:.0f} pages "
+                        f"but currently reaches {body_p:.1f}. EXPAND this "
+                        f"section by 30-50% with REAL substance only: "
+                        f"deeper analysis of the measured numbers, richer "
+                        f"engagement with the cited literature, precise "
+                        f"methodological detail. NO filler sentences, NO "
+                        f"new numbers, NO new datasets. Return the full "
+                        f"expanded section body (no heading).\n\n"
+                        f"Current section '{title}':\n{body[:6000]}"
+                    ),
+                    max_tokens=3000,
+                )
+                if grown.strip() and len(grown) > len(body):
+                    nb = _clean_section_body(grown, title)
+                    if _review_section(sec_id, nb, phd.workspace) is None:
+                        new_sections.append((title, nb.strip()))
+                        continue
+                new_sections.append((title, body))
+            sections = new_sections
+            paper_path.write_text(
+                _reassemble_paper(method, sections, section_figures,
+                                  reference_lines),
+                encoding="utf-8",
+            )
+            tex_path = write_tex(
+                paper_path.read_text(encoding="utf-8"),
+                paper_path.parent,
+                class_name=venue["class_name"],
+                venue_id=venue.get("venue_id"),
+                venue_name=venue.get("venue_name"),
+                page_limit=venue.get("page_limit", 9),
+            )
+            pdf_path = build_pdf(tex_path, texinputs=[templates_dir])
+            pdf_built = pdf_path.suffix.lower() == ".pdf" and pdf_path.is_file()
         # 2.5 Run the Article 19 visual inspect on the rendered PDF and
         #     fold the result into the next article_memo entry. The
         #     PhD never declares the paper "ready" without this check.
@@ -2083,10 +2173,9 @@ def _clean_section_body(text: str, title: str) -> str:
     # and `###` levels and exclude `### 4.x` (the canonical
     # experimental sub-headings) from the stop condition so the
     # pattern doesn't accidentally consume them.
-    if title.lower().startswith("4. experimental") or \
-       title.lower().startswith("3. method") or \
-       title.lower().startswith("5. conclusion") or \
-       title.lower().startswith("6. limitations"):
+    if title.lower().startswith(("4. experimental", "3. method",
+                                 "5. analysis", "6. conclusion",
+                                 "7. limitations")):
         stray_patterns: list[re.Pattern] = []
         # Strip "## Datasets" / "### Datasets" / "### Datasets and
         # experimental plan" from any of the body sections. The
@@ -2133,9 +2222,29 @@ _SECTION_ID_BY_TITLE: dict[str, str] = {
     "2. Related Work": "related",
     "3. Method": "method",
     "4. Experimental Setup": "experiments",
-    "5. Conclusion": "conclusion",
-    "6. Limitations and Future Work": "limitations",
+    "5. Analysis and Discussion": "analysis",
+    "6. Conclusion": "conclusion",
+    "7. Limitations and Future Work": "limitations",
 }
+
+
+def _count_body_pages(pdf_path: Path) -> tuple[int, float]:
+    """(total_pages, body_pages): body = pages before the References
+    heading (the page containing it counts half)."""
+    import pypdfium2 as pdfium
+    pdf = pdfium.PdfDocument(str(pdf_path))
+    total = len(pdf)
+    body = float(total)
+    for i in range(total):
+        try:
+            text = pdf[i].get_textpage().get_text_bounded()
+        except Exception:  # noqa: BLE001
+            continue
+        if "References" in (text or ""):
+            body = i + 0.5
+            break
+    pdf.close()
+    return total, body
 
 
 def _reassemble_paper(
@@ -2669,10 +2778,14 @@ def _intro_prompt(direction: str, method: str, evidence: list[Evidence],
                   workspace: Path | None = None) -> str:
     headline = _results_headline(workspace)
     return (
-        f"Write the Introduction (1-2 paragraphs) of a top-venue paper. "
+        f"Write the Introduction (3-4 dense paragraphs, ~600-800 words — "
+        f"this is a FULL paper, size the section accordingly) of a "
+        f"top-venue paper. "
         f"Frame the problem (direction={direction!r}), the gap in prior work "
         f"(use the survey evidence below; do not invent citations), and the "
-        f"contribution of method={method!r}. End with a 3-bullet list of "
+        f"contribution of method={method!r}. Support every design claim "
+        f"with a citation — a full paper engages the literature deeply. "
+        f"End with a 3-bullet list of "
         f"concrete contributions. Dense, declarative. No filler.\n\n"
         f"HONESTY CONSTRAINT: the experiments compared ONLY against PCA "
         f"reconstruction, IsolationForest, and kNN distance. NEVER claim the "
@@ -2688,9 +2801,14 @@ def _intro_prompt(direction: str, method: str, evidence: list[Evidence],
 
 def _related_prompt(direction: str, method: str, evidence: list[Evidence]) -> str:
     return (
-        f"Write the Related Work section (3 paragraphs max). Group the "
-        f"surveyed papers into 2-3 thematic clusters and discuss each. "
-        f"Cite every paper by short cite. If the survey found < 5 papers, "
+        f"Write the Related Work section (4-5 dense paragraphs, ~700-900 "
+        f"words — this is a FULL paper). Group the surveyed papers into "
+        f"3-4 thematic clusters and discuss each cluster's assumptions, "
+        f"strengths, and the specific gap it leaves. Cite EVERY surveyed "
+        f"paper below, and additionally cite well-known canonical works "
+        f"you can name precisely (author-year) — deep literature "
+        f"engagement highlights the novelty of the proposed method. "
+        f"If the survey found < 5 papers, "
         f"say so explicitly. CONSISTENCY: the corpus size is EXACTLY "
         f"{len(evidence)} papers — if you state a count anywhere, use "
         f"exactly {len(evidence)} (other sections state the same number).\n\n"
@@ -2878,6 +2996,33 @@ def _limitations_prompt(direction: str, method: str, evidence: list[Evidence],
         f"'[paper1]', '[paper2]', '[ref: ...]', '[cite needed]', "
         f"'[todo ...]'. If you would have cited a paper, either drop "
         f"the claim or use a real author-year tag (e.g. 'Wu et al., 2024')."
+    )
+
+
+def _analysis_prompt(direction: str, method: str, evidence: list[Evidence],
+                     workspace: Path | None = None) -> str:
+    """Analysis & Discussion: the section that turns raw numbers into
+    understanding — and legitimately fills a full paper with REAL
+    content (per-dataset behavior, precision/recall trade-offs,
+    failure-mode analysis, threats to validity)."""
+    table = _results_table_md(workspace) or "(no measured results)"
+    headline = _results_headline(workspace)
+    return (
+        f"Write the Analysis and Discussion section (4-6 dense paragraphs, "
+        f"~700-900 words) for the paper on {method!r}. Use ONLY the "
+        f"measured numbers below — every claim must trace to a cell of "
+        f"the table. Cover, with sub-headings '## 5.1' to '## 5.4':\n"
+        f"  ## 5.1 Per-dataset behavior — why the method wins/loses on "
+        f"each dataset, grounded in that dataset's characteristics "
+        f"(dimensionality, anomaly ratio, drift) and the metric pattern.\n"
+        f"  ## 5.2 Precision-recall trade-offs — what the precision vs "
+        f"recall split of each method says about its error profile.\n"
+        f"  ## 5.3 Failure-mode analysis — the loss regime: what property "
+        f"of the losing dataset defeats the method's core assumption.\n"
+        f"  ## 5.4 Threats to validity — best-F1 threshold sweep caveats, "
+        f"few-dataset scope, single-machine SMD shard, short NAB traces.\n"
+        f"No fabricated numbers; no invented ablations.\n\n"
+        f"{headline}\n\nFull results table:\n{table}"
     )
 
 
