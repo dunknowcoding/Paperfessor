@@ -2449,6 +2449,20 @@ def _clean_section_body(text: str, title: str) -> str:
     blank lines (max 2) and trim trailing whitespace.
     """
     out = text
+    # Strip fenced code blocks: the LLM emits ASCII / box-drawing
+    # pipeline diagrams that render as non-wrapping verbatim and
+    # overflow the column margin (observed on page 3 of a full
+    # paper). We already generate a real block_diagram.png figure,
+    # so these are redundant as well as broken.
+    out = re.sub(r"```.*?```", "", out, flags=re.S)
+    # Strip stray "Figure N. ..." / "Figure N: ..." plain-text
+    # captions the LLM writes for its ASCII diagram — real figures
+    # get a proper \caption via the markdown image syntax, so these
+    # are orphan text that also double-numbers the figures.
+    out = re.sub(r"(?m)^\s*Figure\s+\d+[.:].*(?:\n(?!\s*$).*)*", "", out)
+    # Box-drawing / heavy-arrow characters only ever come from ASCII
+    # diagrams; drop any residual lines containing them.
+    out = re.sub(r"(?m)^.*[─-╿←-⇿].*$\n?", "", out)
     # Remove a leading duplicate heading: the LLM sometimes writes
     # "# 1 Introduction" or "## Related Work" as the first line,
     # which then duplicates the heading we add above it. Match both

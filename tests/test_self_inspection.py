@@ -177,6 +177,26 @@ def test_canonical_citation_rung_needs_alias_corroboration(monkeypatch):
     assert not any("USAD" in r for r in refs2)
 
 
+def test_clean_section_strips_ascii_diagrams():
+    from paperfessor.runner.pipeline import _clean_section_body
+    body = (
+        "The method has three stages.\n\n"
+        "```\n"
+        "  x --> [FFT] --> [band] --> score\n"
+        + "┌" + "─" * 40 + "┐\n"
+        "```\n\n"
+        "Figure 1. Pipeline of the method decomposed into bands and\n"
+        "scored by kNN against references.\n\n"
+        "The scorer is a kNN in latent space.\n"
+    )
+    out = _clean_section_body(body, "3. Method")
+    assert "```" not in out
+    assert "┌" not in out and "─" not in out
+    assert "Figure 1." not in out
+    # Real prose survives.
+    assert "three stages" in out and "kNN in latent space" in out
+
+
 def test_review_input_keeps_structure_and_references():
     from paperfessor.runner.pipeline import _review_input
     long_body = ("Lorem ipsum dolor sit amet. " * 40 + "\n\n") * 30

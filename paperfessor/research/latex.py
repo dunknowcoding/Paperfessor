@@ -366,9 +366,13 @@ def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
         line = raw.rstrip()
         if line.startswith("```"):
             if in_code:
-                body_lines.append(r"\begin{verbatim}")
-                body_lines.extend(code_buf)
-                body_lines.append(r"\end{verbatim}")
+                # Belt-and-suspenders: verbatim does not wrap, so a
+                # long line overflows the column. Section bodies have
+                # their fences stripped upstream; anything reaching
+                # here is truncated at the column width and set small.
+                body_lines.append(r"{\small\begin{verbatim}")
+                body_lines.extend(c[:78] for c in code_buf)
+                body_lines.append(r"\end{verbatim}}")
                 body_lines.append("")
                 code_buf = []
                 in_code = False
