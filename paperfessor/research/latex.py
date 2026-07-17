@@ -582,7 +582,9 @@ def write_tex(
     body, appendix_md, was_split = _enforce_page_limit(paper_md, body, page_limit)
     title_tex = _escape(title or "Paper")
     if venue_name:
-        title_tex = _escape(f"[Submitted to {venue_name}] ") + title_tex
+        # "Target venue", not "Submitted to" — nothing has actually
+        # been submitted, and the title must not claim otherwise.
+        title_tex = _escape(f"[Target venue: {venue_name}] ") + title_tex
     if class_name == "acmart-sigconf":
         tex = NEURIPS_PREAMBLE_TEMPLATE % (
             title_tex,

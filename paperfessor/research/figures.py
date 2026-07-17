@@ -39,7 +39,10 @@ def generate_block_diagram(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     datasets = datasets or ["PSM", "MSL", "SMAP"]
 
-    fig, ax = plt.subplots(figsize=(8.0, 4.5), dpi=150)
+    # Aspect ratio >= 1.8 so the .tex writer places the diagram in a
+    # two-column ``figure*`` slot (readable at ~6 in); in a single
+    # column the 4-stage pipeline shrinks below legibility.
+    fig, ax = plt.subplots(figsize=(9.0, 4.0), dpi=200)
     ax.set_xlim(0.0, 10.0)
     ax.set_ylim(0.0, 5.0)
     ax.axis("off")
