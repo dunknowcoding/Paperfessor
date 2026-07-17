@@ -2204,6 +2204,22 @@ def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
     # by the LaTeX converter and would print literally.
     if re.search(r"\[\^\w+\]", paper_md):
         defects.append("markdown footnote marker [^...] would print literally in the PDF")
+    # Safeguard 5 — implementation fidelity: the experiments run a
+    # CPU-only numpy/scikit-learn variant; Method text claiming
+    # deep-learning training procedures contradicts the Protocol.
+    if _load_run_results(workspace):
+        m = re.search(
+            r"\btrains? end-to-end\b|\bwith adam\b|\badam optimizer\b|"
+            r"\bbackpropagat\w*|\bepochs? of training\b|\blearning-rate schedule\b",
+            lowered,
+        )
+        if m:
+            defects.append(
+                f"Method text claims a deep-training procedure ({m.group(0)!r}) "
+                f"but the implementation is CPU-only numpy/scikit-learn — "
+                f"describe the SIMPLIFIED variant actually run; idealized "
+                f"extensions belong in Future Work"
+            )
     valid = _measured_number_tokens(workspace)
     if valid:
         for tok in sorted(set(re.findall(r"\b0\.\d{3}\b", body))):
@@ -2289,7 +2305,10 @@ def _llm_paper_review(
                 "or baseline described as evaluated that is not in the "
                 "results, (3) contradictions between sections, (4) numbers "
                 "that disagree with the results table, (5) unclear or "
-                "broken sentences. Output ONE defect per line in the form "
+                "broken sentences. NOTE: markers like '[... N chars "
+                "omitted ...]' are context-fitting notes from the review "
+                "harness, NOT part of the paper — never report them as "
+                "defects. Output ONE defect per line in the form "
                 "'<SECTION TITLE>: <defect>'. If the paper has no such "
                 "defects, output exactly: NONE"
             ),
@@ -2323,6 +2342,9 @@ def _llm_paper_review(
         if any(okw in low for okw in ("— correct", "- correct", "is correct",
                                       "consistent with", "no issue",
                                       "matches the", "verified correct")):
+            continue
+        # The review copy's own trimming markers are not paper defects.
+        if "chars omitted" in low or "chars of this section omitted" in low:
             continue
         if ":" in line and 10 < len(line) < 400:
             out.append(line)
@@ -2685,9 +2707,14 @@ def _method_prompt(direction: str, method: str, evidence: list[Evidence],
     return (
         f"Write the Method section (2-3 paragraphs) for {method!r}. "
         f"Describe the method concretely; include one figure described in "
-        f"words. Do NOT list evaluation datasets here (Section 4 covers "
-        f"them); do NOT promise experiments on datasets that were not run. "
-        f"No fabricated numbers.\n\n{headline}"
+        f"words. IMPLEMENTATION FIDELITY: describe the method AS "
+        f"IMPLEMENTED — a CPU-only numpy/scikit-learn variant with no "
+        f"neural training (no Adam, no backpropagation, no epochs, no "
+        f"GPU); the Protocol section states this and the Method must not "
+        f"contradict it. Idealized deep extensions may be mentioned only "
+        f"as future work. Do NOT list evaluation datasets here (Section 4 "
+        f"covers them); do NOT promise experiments on datasets that were "
+        f"not run. No fabricated numbers.\n\n{headline}"
     )
 
 

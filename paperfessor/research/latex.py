@@ -213,7 +213,11 @@ def _escape(s: str) -> str:
         elif c == "%":
             out.append(r"\%")
         elif c == "$":
-            out.append(r"\$")
+            # Real inline math was stashed before this pass, so any $
+            # reaching here is an UNMATCHED stray from LLM math with
+            # odd delimiters — printing it literally defaced rendered
+            # equations ("$L = ..." artifacts). Drop it.
+            pass
         elif c == "#":
             out.append(r"\#")
         elif c == "_":
