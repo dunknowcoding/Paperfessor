@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-2E5E4E.svg)](../../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-33475B.svg)](../../pyproject.toml)
 
-[English](../../README.md) · [简体中文](../zh-CN/README.md) · [日本語](README.md)
+[English](../../README.md) · [简体中文](../zh-CN/README.md) · **日本語** · [Español](../es/README.md) · [Français](../fr/README.md) · [Deutsch](../de/README.md) · [Italiano](../it/README.md) · [Português](../pt/README.md) · [Русский](../ru/README.md) · [한국어](../ko/README.md) · [العربية](../ar/README.md)
 
 <img src="../../assets/Meerk_studio.png" alt="Meerk 教授のスタジオ：PhD エージェントが構想と論文、Master エージェントが文献レビュー、コーダーエージェントが実験を担当" width="92%"/>
 

@@ -13,7 +13,7 @@
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-33475B.svg)](pyproject.toml)
 [![Status](https://img.shields.io/badge/Status-Research%20Preview-B7412E.svg)](#responsible-use-and-disclaimer)
 
-[English](README.md) · [简体中文](docs/zh-CN/README.md) · [日本語](docs/ja/README.md)
+**English** · [简体中文](docs/zh-CN/README.md) · [日本語](docs/ja/README.md) · [Español](docs/es/README.md) · [Français](docs/fr/README.md) · [Deutsch](docs/de/README.md) · [Italiano](docs/it/README.md) · [Português](docs/pt/README.md) · [Русский](docs/ru/README.md) · [한국어](docs/ko/README.md) · [العربية](docs/ar/README.md)
 
 <img src="assets/Meerk_studio.png" alt="Prof. Meerk's studio: the PhD agent drafts ideas and the paper, the Master agent reviews articles, and the coder agent runs the experiments" width="92%"/>
 

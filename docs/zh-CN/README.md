@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-2E5E4E.svg)](../../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-33475B.svg)](../../pyproject.toml)
 
-[English](../../README.md) · [简体中文](README.md) · [日本語](../ja/README.md)
+[English](../../README.md) · **简体中文** · [日本語](../ja/README.md) · [Español](../es/README.md) · [Français](../fr/README.md) · [Deutsch](../de/README.md) · [Italiano](../it/README.md) · [Português](../pt/README.md) · [Русский](../ru/README.md) · [한국어](../ko/README.md) · [العربية](../ar/README.md)
 
 <img src="../../assets/Meerk_studio.png" alt="Meerk 教授的工作室：博士智能体负责构思与论文，硕士智能体负责文献评阅，编码智能体负责实验" width="92%"/>
 
