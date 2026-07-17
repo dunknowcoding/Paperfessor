@@ -366,13 +366,23 @@ def _aggregate(
 # ---- Rendering ------------------------------------------------------------
 
 
-def rows_to_markdown(rows: list[MetricRow]) -> str:
+def rows_to_markdown(rows: list[MetricRow], *, include_time: bool = False) -> str:
     """Render the results as a Markdown table (real numbers only;
-    failed runs show 'failed' so nothing fake enters the paper)."""
-    lines = [
-        "| Dataset | Method | F1 | Precision | Recall | AUROC | AUPRC |",
-        "|---|---|---|---|---|---|---|",
-    ]
+    failed runs show 'failed' so nothing fake enters the paper).
+
+    ``include_time`` adds a wall-clock column for speed-optimization
+    topics, where runtime is a first-class metric — every method is
+    measured on the same machine, so the comparison is fair."""
+    if include_time:
+        lines = [
+            "| Dataset | Method | F1 | Precision | Recall | AUROC | AUPRC | Time (s) |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+    else:
+        lines = [
+            "| Dataset | Method | F1 | Precision | Recall | AUROC | AUPRC |",
+            "|---|---|---|---|---|---|---|",
+        ]
     # Best F1 per dataset gets bolded (published-paper convention).
     best_f1: dict[str, float] = {}
     for r in rows:
@@ -380,7 +390,8 @@ def rows_to_markdown(rows: list[MetricRow]) -> str:
             best_f1[r.dataset] = max(best_f1.get(r.dataset, 0.0), r.f1_mean)
     for r in rows:
         if r.error:
-            lines.append(f"| {r.dataset} | {r.method} | failed | - | - | - | - |")
+            tail = " - |" if include_time else ""
+            lines.append(f"| {r.dataset} | {r.method} | failed | - | - | - | - |{tail}")
             continue
         # Consistency contract with the Protocol text: any method run
         # with multiple seeds prints its ± even when it is 0.000 —
@@ -391,15 +402,19 @@ def rows_to_markdown(rows: list[MetricRow]) -> str:
         if best_f1.get(r.dataset) == r.f1_mean:
             f1 = f"**{f1}**"
         roc = f"{r.auroc_mean:.3f}" + (f" ± {r.auroc_ci:.3f}" if multi else "")
+        time_cell = (
+            f" {r.seconds / max(1, r.n_seeds):.2f} |" if include_time else ""
+        )
         lines.append(
             f"| {r.dataset} | {r.method} | {f1} | {r.precision_mean:.3f} "
-            f"| {r.recall_mean:.3f} | {roc} | {r.auprc_mean:.3f} |"
+            f"| {r.recall_mean:.3f} | {roc} | {r.auprc_mean:.3f} |{time_cell}"
         )
     return "\n".join(lines)
 
 
 def save_results(rows: list[MetricRow], manifests: dict[str, dict],
-                 out_dir: Path, *, proposed_device: str = "cpu") -> Path:
+                 out_dir: Path, *, proposed_device: str = "cpu",
+                 runtime_metric: bool = False) -> Path:
     """Persist results.json + results.md under ``out_dir``."""
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -415,12 +430,16 @@ def save_results(rows: list[MetricRow], manifests: dict[str, dict],
                 "baselines": "cpu (numpy/scikit-learn)",
                 "proposed": proposed_device,
             },
+            # Speed topics: wall-clock is a first-class metric,
+            # measured for every method on the same machine.
+            "runtime_metric": runtime_metric,
         },
     }
     (out_dir / "results.json").write_text(
         json.dumps(payload, indent=2), encoding="utf-8")
     (out_dir / "results.md").write_text(
-        rows_to_markdown(rows) + "\n", encoding="utf-8")
+        rows_to_markdown(rows, include_time=runtime_metric) + "\n",
+        encoding="utf-8")
     return out_dir / "results.json"
 
 

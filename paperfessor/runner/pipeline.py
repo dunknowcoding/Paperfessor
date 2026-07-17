@@ -1003,6 +1003,21 @@ _DOMAIN_DATASETS: tuple[tuple[tuple[str, ...], list[str]], ...] = (
 )
 
 
+def _speed_topic(direction: str) -> bool:
+    """True when the research topic is ITSELF about runtime/efficiency
+    (e.g. optimizing an approach's speed). For such topics there is no
+    hardware/methodology restriction — acceleration is part of the
+    contribution — and wall-clock time becomes a first-class measured
+    metric (all methods run on the same machine, so the comparison is
+    fair by construction)."""
+    d = direction.lower()
+    return any(k in d for k in (
+        "speed", "latency", "throughput", "efficien", "accelerat",
+        "real-time", "realtime", "runtime", "inference time",
+        "lightweight", "fast ", "faster",
+    ))
+
+
 def _datasets_for_direction(direction: str) -> list[str]:
     d = direction.lower()
     for keys, names in _DOMAIN_DATASETS:
@@ -1131,12 +1146,19 @@ def _phase_code(
         except Exception:  # noqa: BLE001
             continue
     _HEAVY_WORKLOAD_CELLS = 5_000_000
-    gpu_ok = gpu_available() and workload_cells >= _HEAVY_WORKLOAD_CELLS
-    if gpu_available() and not gpu_ok:
-        logger.info(
-            "GPU present but workload light (%s cells < %s); staying on CPU",
-            workload_cells, _HEAVY_WORKLOAD_CELLS,
-        )
+    speed_topic = _speed_topic(direction)
+    if speed_topic:
+        # Speed-optimization topics: NO hardware/methodology limits —
+        # acceleration is the contribution, and wall-clock is a
+        # first-class metric (identical machine for every method).
+        gpu_ok = gpu_available()
+    else:
+        gpu_ok = gpu_available() and workload_cells >= _HEAVY_WORKLOAD_CELLS
+        if gpu_available() and not gpu_ok:
+            logger.info(
+                "GPU present but workload light (%s cells < %s); staying on CPU",
+                workload_cells, _HEAVY_WORKLOAD_CELLS,
+            )
 
     experiment_datasets = _datasets_for_direction(direction)
     if not experiment_datasets:
@@ -1198,6 +1220,13 @@ def _phase_code(
             rounds.append(f"round {attempt + 1}: skipped (LLM budget exhausted)")
             break
         ug.set_status(UndergradStatus.CODING)
+        speed_note = (
+            "\nSPEED TOPIC: runtime is a first-class metric for this "
+            "research direction. Optimize aggressively with ANY "
+            "acceleration available (GPU, vectorization, batching, "
+            "algorithmic shortcuts) — wall-clock time is measured and "
+            "reported for every method on the same machine.\n"
+        ) if speed_topic else ""
         reply = ug.ask(
             system=(
                 "You are an undergraduate research engineer. You write "
@@ -1206,7 +1235,8 @@ def _phase_code(
             ),
             user=(
                 f"Method to implement: {method}\n"
-                f"Research direction: {direction}\n\n"
+                f"Research direction: {direction}\n"
+                f"{speed_note}\n"
                 f"{_model_contract(gpu_ok)}\n"
                 + (f"\nYour previous attempt failed with this error. Fix it "
                    f"and return the corrected FULL file:\n```\n{feedback}\n```\n"
@@ -1259,7 +1289,8 @@ def _phase_code(
     )
     results_dir = ug.workspace / "src" / "results"
     save_results(rows, manifests, results_dir,
-                 proposed_device=("cuda" if gpu_ok else "cpu"))
+                 proposed_device=("cuda" if gpu_ok else "cpu"),
+                 runtime_metric=speed_topic)
     fig_path = plot_results(rows, ug.workspace / "src" / "figures" / "results_f1.png")
     # Raw-data sample figure (real test segment, labeled anomalies).
     try:
@@ -1276,7 +1307,7 @@ def _phase_code(
     #    proposed model really ran.
     proposed_rows = [r for r in rows if r.method.endswith("(ours)")]
     proposed_ran = any(r.n_seeds > 0 and not r.error for r in proposed_rows)
-    table_md = rows_to_markdown(rows)
+    table_md = rows_to_markdown(rows, include_time=speed_topic)
     ug.set_status(UndergradStatus.REPORTING)
     ug.write_code_log(
         subject=f"Experiments for {method}",
