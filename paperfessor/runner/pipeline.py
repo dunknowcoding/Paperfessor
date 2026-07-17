@@ -571,6 +571,20 @@ def _phase_plan(
         "\n".join(f"- {a.get('method', '?')} (success={a.get('success', '?')}, reason={a.get('reason', '-')})"
                   for a in archived) or "(none)"
     )
+    # Self-evolution cuts both ways: the archive records what WORKED,
+    # not only what failed. The planner must exploit proven strengths
+    # (e.g. a method family that beat the baselines) while still
+    # producing something new.
+    wins = [a for a in archived if str(a.get("success")).lower() == "true"]
+    wins_summary = (
+        "\n".join(f"- {a.get('method', '?')}" for a in wins[-3:])
+        or "(no successful attempt yet)"
+    )
+    wins_note = (
+        f"\n\nMethod families that PROVED COMPETITIVE in past attempts "
+        f"(exploit their winning ingredient, but do not resubmit them "
+        f"verbatim — they are done):\n{wins_summary}\n"
+    )
     # Quick pre-survey: what already exists in this direction?
     existing_lines: list[str] = []
     if ms is not None:
@@ -601,10 +615,13 @@ def _phase_plan(
             f"  prior method: {prior_method}\n\n"
             f"Post-mortem from the previous attempt (from the writing "
             f"memory):\n{post_mortem or '(none recorded)'}\n\n"
-            f"Design an IMPROVED VARIANT of the prior method: keep its "
-            f"core idea, fix the specific weakness the post-mortem "
-            f"exposes, and give the variant a distinct name (do NOT "
-            f"reuse the prior name verbatim). Format your reply as:\n"
+            f"{wins_note}"
+            f"Design an IMPROVED VARIANT of the prior method: KEEP its "
+            f"core mechanism (do not switch to an unrelated family), fix "
+            f"the specific weakness the post-mortem exposes — and where a "
+            f"past attempt proved a technique competitive, fold that "
+            f"winning ingredient in. Give the variant a distinct name "
+            f"(do NOT reuse the prior name verbatim). Format your reply as:\n"
             f"  METHOD: <short name, max 8 words>\n"
             f"  WHY: <one sentence: which weakness this fixes and how>\n"
             f"  DIFFERS-FROM: <one sentence vs the prior variant>\n"
@@ -618,8 +635,12 @@ def _phase_plan(
             f"(your method must be meaningfully DIFFERENT from all of these, "
             f"not a rebrand):\n{existing_summary}\n\n"
             f"Prior attempts in the archive (skip methods that already succeeded or were vetoed):\n"
-            f"{archived_summary}\n\n"
-            f"Propose ONE concrete NOVEL method to attempt. Format your reply as:\n"
+            f"{archived_summary}\n"
+            f"{wins_note}\n"
+            f"Propose ONE concrete NOVEL method to attempt. When the "
+            f"archive shows a technique that proved competitive, prefer "
+            f"designs that build on that winning ingredient rather than "
+            f"abandoning it. Format your reply as:\n"
             f"  METHOD: <short name, max 8 words>\n"
             f"  WHY: <one sentence on novelty and feasibility>\n"
             f"  DIFFERS-FROM: <one sentence: how it differs from the closest existing approach above>\n"
@@ -1345,7 +1366,7 @@ def _phase_write(
     sections: list[tuple[str, str]] = []
     for section_id, title, user_prompt, max_tokens in [
         ("abstract", "Abstract", _abstract_prompt(direction, method, evidence, phd.workspace), 600),
-        ("intro", "1. Introduction", _intro_prompt(direction, method, evidence, phd.workspace), 900),
+        ("intro", "1. Introduction", _intro_prompt(direction, method, evidence, phd.workspace), 1200),
         ("related", "2. Related Work", _related_prompt(direction, method, evidence), 1000),
         ("method", "3. Method", _method_prompt(direction, method, evidence, phd.workspace), 1300),
         ("experiments", "4. Experimental Setup", _experiments_prompt(direction, method, evidence, phd.workspace), 2400),
@@ -2328,7 +2349,25 @@ def _resolve_missing_citations(
                         break
             except Exception:  # noqa: BLE001
                 pass
+        # Rung 3: Semantic Scholar free search (strong author/venue
+        # coverage where the keyword-context search misses).
         if entry is None:
+            try:
+                from paperfessor.research.sources import s2 as _s2
+                query = f"{surname} {year or ''} {keywords}".strip()
+                for h in _s2.search(query, limit=5):
+                    if (any(surname.lower() == a.split()[-1].lower()
+                            for a in h.authors)
+                            and (year == 0 or abs(h.year - year) <= 1)):
+                        link = (f"https://arxiv.org/abs/{h.arxiv_id}"
+                                if h.arxiv_id else (h.doi or ""))
+                        entry = (f"- {surname} et al. ({h.year}). *{h.title}*. "
+                                 f"{h.venue or 'S2'}. {link}")
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+        if entry is None:
+            logger.info("citation resolution failed for %s (%s)", surname, year)
             unresolved.append(d)
             continue
         if not any(entry.split("*")[1][:40] in l for l in reference_lines if "*" in l):
@@ -2340,10 +2379,22 @@ def _resolve_missing_citations(
 def _defect_targets_section(defect: str, title: str, body: str) -> bool:
     """Does this defect concern this section? Match by section-title
     prefix (LLM defects) or by offending token present in the body
-    (deterministic defects)."""
+    (deterministic defects).
+
+    The reviewer names sections loosely ("Section 2 Related Work:",
+    "2. Related Work:", "Related Work —"), so matching normalizes
+    both sides down to the bare words.
+    """
     d = defect.lower()
     t = title.lower()
-    if d.startswith(t) or t in d.split(":", 1)[0]:
+    head = d.split(":", 1)[0][:60]
+    # Normalize: drop "section", digits, punctuation.
+    norm = lambda s: re.sub(r"[^a-z ]+", " ", s.replace("section", " ")).split()
+    t_words = [w for w in norm(t) if len(w) > 2]
+    head_words = set(norm(head))
+    if t_words and all(w in head_words for w in t_words):
+        return True
+    if d.startswith(t) or t in head:
         return True
     # Deterministic defects carry the offending token in quotes or as
     # a number — check the body for it.
@@ -2455,7 +2506,9 @@ def _related_prompt(direction: str, method: str, evidence: list[Evidence]) -> st
         f"Write the Related Work section (3 paragraphs max). Group the "
         f"surveyed papers into 2-3 thematic clusters and discuss each. "
         f"Cite every paper by short cite. If the survey found < 5 papers, "
-        f"say so explicitly.\n\n"
+        f"say so explicitly. CONSISTENCY: the corpus size is EXACTLY "
+        f"{len(evidence)} papers — if you state a count anywhere, use "
+        f"exactly {len(evidence)} (other sections state the same number).\n\n"
         f"Surveyed papers (real, dedup'd):\n"
         + "\n".join(f"- {ev.paper.short_cite()} ({ev.paper.venue or '?'}): "
                     f"{ev.paper.title}"
@@ -2630,9 +2683,10 @@ def _conclusion_prompt(direction: str, method: str, evidence: list[Evidence],
         f"Write a 1-paragraph Conclusion section for a paper about "
         f"direction={direction!r} using method={method!r}. "
         f"Summarize: (i) what problem we addressed, (ii) what we proposed "
-        f"as the solution, (iii) what the survey of {len(evidence)} papers "
-        f"showed, (iv) what the experiments measured (use ONLY the numbers "
-        f"below), (v) the single most important next step. "
+        f"as the solution, (iii) what the survey of EXACTLY {len(evidence)} "
+        f"papers showed (use exactly this count; other sections state the "
+        f"same number), (iv) what the experiments measured (use ONLY the "
+        f"numbers below), (v) the single most important next step. "
         f"No filler, no AI tells. 100-160 words. "
         f"IMPORTANT: do NOT use placeholder citation tags like "
         f"'[paper1]', '[paper2]', '[ref: ...]', '[cite needed]'. "
