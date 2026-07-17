@@ -623,11 +623,22 @@ def _phase_plan(
         "\n".join(f"- {a.get('method', '?')}" for a in wins[-3:])
         or "(no successful attempt yet)"
     )
-    wins_note = (
-        f"\n\nMethod families that PROVED COMPETITIVE in past attempts "
-        f"(exploit their winning ingredient, but do not resubmit them "
-        f"verbatim — they are done):\n{wins_summary}\n"
-    )
+    if wins:
+        wins_note = (
+            f"\n\nMethod families that PROVED COMPETITIVE in past attempts "
+            f"on this exact direction:\n{wins_summary}\n"
+            f"STRONG GUIDANCE: build DIRECTLY on the winning ingredient of "
+            f"the most recent success (do not switch to an unrelated "
+            f"family that has not been shown to work here); your novelty "
+            f"must be an ADVANCE on that proven mechanism, not a departure "
+            f"from it. Give it a new name; do not resubmit the prior "
+            f"method verbatim.\n"
+        )
+    else:
+        wins_note = (
+            "\n\n(No method has yet proved competitive on this direction; "
+            "propose the most promising novel approach.)\n"
+        )
     # Quick pre-survey: what already exists in this direction?
     existing_lines: list[str] = []
     if ms is not None:
