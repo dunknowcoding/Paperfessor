@@ -152,6 +152,24 @@ def test_resolve_missing_citations_parses_and_skips_unmatchable(monkeypatch):
     assert unresolved == ["number 0.999 does not match any measured value"]
 
 
+def test_canonical_citation_rung_needs_alias_corroboration():
+    from paperfessor.runner.pipeline import _resolve_missing_citations
+    refs: list[str] = []
+    md = ("## 2. Related Work\n\nUSAD frames detection as adversarial "
+          "reconstruction (Audibert et al., 2020).\n\n## References\n\n- x\n")
+    d = ["body cites (Audibert et al.) but the References list has no such entry"]
+    unresolved, added = _resolve_missing_citations(d, md, refs)
+    assert added == 1 and any("USAD" in r for r in refs)
+    # Same surname WITHOUT corroborating context must not use the table
+    # (falls through to the live rungs; with those failing it stays
+    # unresolved rather than attaching the wrong work).
+    refs2: list[str] = []
+    md2 = ("## 2. Related Work\n\nA totally unrelated claim "
+           "(Audibert et al., 1901).\n\n## References\n\n- x\n")
+    unresolved2, added2 = _resolve_missing_citations(list(d), md2, refs2)
+    assert not any("USAD" in r for r in refs2)
+
+
 def test_review_input_keeps_structure_and_references():
     from paperfessor.runner.pipeline import _review_input
     long_body = ("Lorem ipsum dolor sit amet. " * 40 + "\n\n") * 30

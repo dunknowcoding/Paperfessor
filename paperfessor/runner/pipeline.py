@@ -435,7 +435,9 @@ def _measured_number_tokens(workspace: Path) -> set[str]:
     non-issues (observed in T12) while real errors survived.
     """
     results = _load_run_results(workspace)
-    tokens: set[str] = set()
+    # Canonical constants that legitimately appear in AD papers:
+    # random-classifier AUROC, CI levels, split fractions.
+    tokens: set[str] = {"0.500", "0.950", "0.975", "0.050", "0.100", "0.150"}
     if not results:
         return tokens
     per_metric: dict[str, list[float]] = {}
@@ -2301,7 +2303,12 @@ def _llm_paper_review(
         # ("Scanning for defects:") and verdict lines for things it
         # checked and found CORRECT — those are not defects.
         if low.startswith(("scanning", "checking", "reviewing", "here are",
-                           "defects", "output")):
+                           "defects", "output", "looking", "examining",
+                           "analyzing", "based on", "overall", "summary")):
+            continue
+        # A defect line names its section before the colon — long
+        # pre-colon text is reviewer narration, not a defect.
+        if len(line.split(":", 1)[0]) > 60:
             continue
         if any(okw in low for okw in ("— correct", "- correct", "is correct",
                                       "consistent with", "no issue",
@@ -2310,6 +2317,96 @@ def _llm_paper_review(
         if ":" in line and 10 < len(line) < 400:
             out.append(line)
     return out[:10]
+
+
+# Curated canonical citations for the field's most-cited classics.
+# Every entry is a real, verifiable published work; the alias tokens
+# must appear in the citing sentence before the entry is used, so a
+# surname collision can never attach the wrong work. This rung has
+# no API dependence — the exact resilience the flaky-index rungs
+# lack for precisely these famous papers.
+_CANONICAL_CITATIONS: dict[tuple[str, int], tuple[str, tuple[str, ...]]] = {
+    ("audibert", 2020): (
+        "- Audibert et al. (2020). *USAD: UnSupervised Anomaly Detection on "
+        "Multivariate Time Series*. KDD 2020. https://doi.org/10.1145/3394486.3403392",
+        ("usad", "adversarial", "autoencoder")),
+    ("liu", 2008): (
+        "- Liu et al. (2008). *Isolation Forest*. ICDM 2008. "
+        "https://doi.org/10.1109/ICDM.2008.17",
+        ("isolation",)),
+    ("breunig", 2000): (
+        "- Breunig et al. (2000). *LOF: Identifying Density-Based Local "
+        "Outliers*. SIGMOD 2000. https://doi.org/10.1145/342009.335388",
+        ("lof", "density", "local outlier")),
+    ("ramaswamy", 2000): (
+        "- Ramaswamy et al. (2000). *Efficient Algorithms for Mining "
+        "Outliers from Large Data Sets*. SIGMOD 2000. "
+        "https://doi.org/10.1145/342009.335437",
+        ("outlier", "nearest neighbor", "distance")),
+    ("ahmad", 2017): (
+        "- Ahmad et al. (2017). *Unsupervised Real-Time Anomaly Detection "
+        "for Streaming Data*. Neurocomputing 262. "
+        "https://doi.org/10.1016/j.neucom.2017.04.070",
+        ("streaming", "nab", "numenta", "htm", "real-time")),
+    ("hundman", 2018): (
+        "- Hundman et al. (2018). *Detecting Spacecraft Anomalies Using "
+        "LSTMs and Nonparametric Dynamic Thresholding*. KDD 2018. "
+        "https://arxiv.org/abs/1802.04431",
+        ("spacecraft", "lstm", "telemanom", "thresholding", "nasa")),
+    ("su", 2019): (
+        "- Su et al. (2019). *Robust Anomaly Detection for Multivariate "
+        "Time Series through Stochastic Recurrent Neural Network*. KDD "
+        "2019. https://doi.org/10.1145/3292500.3330672",
+        ("omnianomaly", "stochastic", "recurrent", "smd", "server machine")),
+    ("xu", 2022): (
+        "- Xu et al. (2022). *Anomaly Transformer: Time Series Anomaly "
+        "Detection with Association Discrepancy*. ICLR 2022. "
+        "https://arxiv.org/abs/2110.02642",
+        ("anomaly transformer", "association", "discrepancy", "attention")),
+    ("ren", 2019): (
+        "- Ren et al. (2019). *Time-Series Anomaly Detection Service at "
+        "Microsoft*. KDD 2019. https://arxiv.org/abs/1906.03821",
+        ("spectral residual", "sr-cnn", "microsoft", "saliency")),
+    ("tuli", 2022): (
+        "- Tuli et al. (2022). *TranAD: Deep Transformer Networks for "
+        "Anomaly Detection in Multivariate Time Series Data*. VLDB 2022. "
+        "https://arxiv.org/abs/2201.07284",
+        ("tranad", "transformer")),
+    ("wu", 2023): (
+        "- Wu et al. (2023). *TimesNet: Temporal 2D-Variation Modeling for "
+        "General Time Series Analysis*. ICLR 2023. "
+        "https://arxiv.org/abs/2210.02186",
+        ("timesnet", "2d-variation", "temporal")),
+    ("kim", 2022): (
+        "- Kim et al. (2022). *Towards a Rigorous Evaluation of Time-Series "
+        "Anomaly Detection*. AAAI 2022. https://arxiv.org/abs/2109.05257",
+        ("evaluation", "point adjust", "protocol", "rigorous")),
+    ("schmidl", 2022): (
+        "- Schmidl et al. (2022). *Anomaly Detection in Time Series: A "
+        "Comprehensive Evaluation*. PVLDB 15(9). "
+        "https://doi.org/10.14778/3538598.3538602",
+        ("comprehensive evaluation", "benchmark", "survey")),
+    ("pang", 2021): (
+        "- Pang et al. (2021). *Deep Learning for Anomaly Detection: A "
+        "Review*. ACM Computing Surveys 54(2). "
+        "https://arxiv.org/abs/2007.02500",
+        ("review", "survey", "deep learning")),
+    ("zong", 2018): (
+        "- Zong et al. (2018). *Deep Autoencoding Gaussian Mixture Model "
+        "for Unsupervised Anomaly Detection*. ICLR 2018. "
+        "https://openreview.net/forum?id=BJJLHbb0-",
+        ("dagmm", "gaussian mixture", "autoencoding")),
+    ("shen", 2020): (
+        "- Shen et al. (2020). *Timeseries Anomaly Detection using Temporal "
+        "Hierarchical One-Class Network*. NeurIPS 2020. "
+        "https://proceedings.neurips.cc/paper/2020/hash/97e401a02082021fd24957f852e0e475-Abstract.html",
+        ("thoc", "hierarchical", "one-class")),
+    ("malhotra", 2016): (
+        "- Malhotra et al. (2016). *LSTM-based Encoder-Decoder for "
+        "Multi-sensor Anomaly Detection*. arXiv:1607.00148. "
+        "https://arxiv.org/abs/1607.00148",
+        ("encoder-decoder", "lstm", "multi-sensor")),
+}
 
 
 def _resolve_missing_citations(
@@ -2346,19 +2443,30 @@ def _resolve_missing_citations(
             if t.lower() != surname.lower()
         )
         entry: str | None = None
+        # Rung 0: curated canonical classics (no API dependence).
+        # The citing sentence must corroborate via an alias token so
+        # a surname collision can never attach the wrong work.
+        sentence_low = sentence.lower()
+        for (c_surname, c_year), (c_entry, aliases) in _CANONICAL_CITATIONS.items():
+            if (c_surname == surname.lower()
+                    and (year == 0 or abs(c_year - year) <= 1)
+                    and any(a in sentence_low for a in aliases)):
+                entry = c_entry
+                break
         # Rung 1: arXiv.
-        try:
-            from paperfessor.research.sources.arxiv import search as _ax
-            for h in _ax(f"{surname} {keywords}", max_results=5):
-                if (any(surname.lower() == a.split()[-1].lower()
-                        for a in h.authors)
-                        and (year == 0 or abs(h.year - year) <= 1)):
-                    aid = h.arxiv_id.split("v", 1)[0]
-                    entry = (f"- {surname} et al. ({h.year}). *{h.title}*. "
-                             f"arXiv:{aid}. https://arxiv.org/abs/{aid}")
-                    break
-        except Exception:  # noqa: BLE001
-            pass
+        if entry is None:
+            try:
+                from paperfessor.research.sources.arxiv import search as _ax
+                for h in _ax(f"{surname} {keywords}", max_results=5):
+                    if (any(surname.lower() == a.split()[-1].lower()
+                            for a in h.authors)
+                            and (year == 0 or abs(h.year - year) <= 1)):
+                        aid = h.arxiv_id.split("v", 1)[0]
+                        entry = (f"- {surname} et al. ({h.year}). *{h.title}*. "
+                                 f"arXiv:{aid}. https://arxiv.org/abs/{aid}")
+                        break
+            except Exception:  # noqa: BLE001
+                pass
         # Rung 2: OpenAlex (classic pre-arXiv papers: IsolationForest,
         # Ramaswamy 2000, ...).
         if entry is None:
@@ -2611,20 +2719,38 @@ def _results_headline(workspace: Path | None) -> str:
     lines = [
         f"MEASURED RESULTS (real, already computed; the ONLY datasets run "
         f"are: {', '.join(datasets)} — do not claim any other dataset was "
-        f"evaluated):"
+        f"evaluated). The WIN/TIE/LOSS labels below are COMPUTED from the "
+        f"numbers — use exactly these labels when framing outcomes (a TIE "
+        f"is within the confidence interval and must not be called a win):"
     ]
+    wins = ties = 0
     for r in ours:
         base_best = max(
             (b for b in ok if b["dataset"] == r["dataset"] and b is not r),
             key=lambda b: b.get("f1_mean", 0.0),
             default=None,
         )
-        cmp = (f" vs best baseline {base_best['method']} F1 {base_best['f1_mean']:.3f}"
-               if base_best else "")
+        if base_best is None:
+            continue
+        diff = r.get("f1_mean", 0.0) - base_best.get("f1_mean", 0.0)
+        tol = max(r.get("f1_ci") or 0.0, base_best.get("f1_ci") or 0.0, 0.005)
+        if abs(diff) <= tol:
+            label = "TIE"
+            ties += 1
+        elif diff > 0:
+            label = "WIN"
+            wins += 1
+        else:
+            label = "LOSS"
         lines.append(
-            f"- {r['dataset']}: ours F1 {r['f1_mean']:.3f}, "
-            f"AUROC {r['auroc_mean']:.3f}{cmp}"
+            f"- {r['dataset']}: {label} on F1 — ours {r['f1_mean']:.3f} "
+            f"(AUROC {r['auroc_mean']:.3f}) vs best baseline "
+            f"{base_best['method']} F1 {base_best['f1_mean']:.3f}"
         )
+    lines.append(
+        f"Overall framing: {wins} win(s), {ties} tie(s), "
+        f"{len(ours) - wins - ties} loss(es) across {len(ours)} datasets."
+    )
     return "\n".join(lines)
 
 
