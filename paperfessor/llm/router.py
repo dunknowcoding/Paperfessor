@@ -400,6 +400,11 @@ def _is_transient(exc: BaseException) -> bool:
         "high load", "overloaded", "server is overloaded",
         " 5", " 408", " 409", " 425", " 429", " 500",
         " 502", " 503", " 504", " 529",
+        # Network-level transients (observed: a single TLS
+        # bad-record-mac hiccup killed an otherwise healthy run).
+        "ssl", "bad record mac", "connection reset", "connection aborted",
+        "connectionerror", "apiconnectionerror", "read timed out",
+        "remote end closed",
     )
     return any(n in msg for n in needles)
 
