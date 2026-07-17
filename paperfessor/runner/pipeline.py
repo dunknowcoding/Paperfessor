@@ -2167,6 +2167,38 @@ def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
     return defects
 
 
+def _review_input(paper_md: str, *, max_chars: int = 24000) -> str:
+    """Fit the whole paper into the reviewer's context WITHOUT losing
+    structure: every section heading survives, the References block
+    is always included in full (citation checks need it), and long
+    section bodies are trimmed at paragraph boundaries with an
+    explicit omission note — never a silent mid-sentence cut."""
+    if len(paper_md) <= max_chars:
+        return paper_md
+    chunks = re.split(r"(?m)^(## .+)$", paper_md)
+    # chunks: [preamble, heading, body, heading, body, ...]
+    sections: list[tuple[str, str]] = []
+    preamble = chunks[0]
+    for i in range(1, len(chunks) - 1, 2):
+        sections.append((chunks[i], chunks[i + 1]))
+    refs = [s for s in sections if "references" in s[0].lower()]
+    others = [s for s in sections if "references" not in s[0].lower()]
+    refs_text = "".join(h + b for h, b in refs)[:5000]
+    budget = max_chars - len(refs_text) - len(preamble) - 200
+    per_section = max(600, budget // max(1, len(others)))
+    parts: list[str] = [preamble]
+    for heading, body in others:
+        if len(body) > per_section:
+            cut = body[:per_section]
+            nl = cut.rfind("\n\n")
+            if nl > per_section * 0.5:
+                cut = cut[:nl]
+            body = cut + f"\n\n[... {len(body) - len(cut)} chars of this section omitted ...]\n"
+        parts.append(heading + body)
+    parts.append(refs_text)
+    return "".join(parts)
+
+
 def _llm_paper_review(
     router: LLMRouter, paper_md: str, workspace: Path,
     direction: str, method: str,
@@ -2197,7 +2229,7 @@ def _llm_paper_review(
             user=(
                 f"Measured results (ground truth):\n{table}\n\n"
                 f"Paper (direction: {direction}; method: {method}):\n\n"
-                + paper_md[:24000]
+                + _review_input(paper_md)
             ),
             max_tokens=900,
             attempts=2,

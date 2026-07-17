@@ -343,6 +343,14 @@ class LLMRouter:
 
     @staticmethod
     def _truncate_to_tokens(text: str, budget: int) -> str:
+        """Head+tail truncation that cuts at PARAGRAPH boundaries.
+
+        A blind mid-token cut leaves half-sentences that derail the
+        model's reading; snapping the cut points to the nearest
+        newline keeps both retained parts coherent, and the marker
+        states exactly how much was omitted so the model knows its
+        context is incomplete rather than silently corrupted.
+        """
         if budget <= 0 or not text:
             return ""
         try:
@@ -352,15 +360,30 @@ class LLMRouter:
             ids = enc.encode(text)
             if len(ids) <= budget:
                 return text
-            head = budget // 2
-            tail = budget - head - 1
-            return enc.decode(ids[:head]) + "\n\n[... truncated ...]\n\n" + enc.decode(ids[-tail:])
+            head_n = budget // 2
+            tail_n = budget - head_n - 16
+            head = enc.decode(ids[:head_n])
+            tail = enc.decode(ids[-tail_n:])
         except Exception:  # noqa: BLE001
             char_budget = budget * 4
             if len(text) <= char_budget:
                 return text
             half = char_budget // 2
-            return text[:half] + "\n\n[... truncated ...]\n\n" + text[-half:]
+            head, tail = text[:half], text[-half:]
+        # Snap to paragraph/line boundaries (drop the ragged edge).
+        nl = head.rfind("\n")
+        if nl > len(head) * 0.6:
+            head = head[:nl]
+        nl = tail.find("\n")
+        if 0 <= nl < len(tail) * 0.4:
+            tail = tail[nl + 1:]
+        omitted = len(text) - len(head) - len(tail)
+        return (
+            head
+            + f"\n\n[... {omitted} characters omitted here; the text "
+            f"resumes at a later section ...]\n\n"
+            + tail
+        )
 
 
 # ---- Helpers ---------------------------------------------------------------

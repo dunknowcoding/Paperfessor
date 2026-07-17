@@ -79,10 +79,19 @@ class PhDStudent(_WorkspaceAgent):
     _MEMO_KEEP_ENTRIES = 40
 
     def _compact_memo_if_needed(self, path: Path) -> None:
+        """Compact WITHOUT memory loss: every dropped entry leaves a
+        one-line digest (timestamp - stage - goal outcome) in a
+        'Compacted history' section, so continuity survives even
+        when the full prose is trimmed. Digests from earlier
+        compactions are preserved and extended."""
         try:
             if not path.is_file() or path.stat().st_size <= self._MEMO_MAX_BYTES:
                 return
             text = path.read_text(encoding="utf-8")
+            # Carry forward any existing digest lines.
+            digest_lines: list[str] = re.findall(
+                r"^> • .+$", text, flags=re.M
+            )
             head, sep, rest = text.partition("\n### ")
             if not sep:
                 return
@@ -90,12 +99,29 @@ class PhDStudent(_WorkspaceAgent):
             entries = ["### " + e if not e.startswith("### ") else e
                        for e in entries]
             kept = entries[-self._MEMO_KEEP_ENTRIES:]
-            dropped = len(entries) - len(kept)
+            dropped_entries = entries[:-self._MEMO_KEEP_ENTRIES]
+            for e in dropped_entries:
+                ts = e.splitlines()[0].lstrip("# ").strip()
+                stage = ""
+                goal = ""
+                m = re.search(r"\*\*Stage\*\*:\s*(.+)$", e, re.M)
+                if m:
+                    stage = m.group(1).strip()[:40]
+                m = re.search(r"\*\*Stage goal achieved\*\*:\s*(.+)$", e, re.M)
+                if m:
+                    goal = m.group(1).strip()[:30]
+                digest_lines.append(f"> • {ts} — {stage or '?'} — {goal or '?'}")
+            # Strip old digest block from head (it is re-emitted below).
+            head = re.sub(r"\n> • .+", "", head)
+            digest_block = (
+                "\n\n> Compacted history (one line per trimmed entry; "
+                "full prose lives in the archive and SQLite memory):\n"
+                + "\n".join(digest_lines[-80:])
+            ) if digest_lines else ""
             compacted = (
                 head.rstrip()
-                + f"\n\n> ({dropped} older entries compacted on "
-                + datetime.now().strftime("%Y-%m-%d %H:%M")
-                + "; full history lives in the archive and the SQLite memory)\n\n"
+                + digest_block
+                + "\n\n"
                 + "\n\n".join(kept)
                 + "\n"
             )

@@ -124,6 +124,24 @@ def test_method_strategy_improve_then_abandon():
     assert mode == "new"
 
 
+def test_review_input_keeps_structure_and_references():
+    from paperfessor.runner.pipeline import _review_input
+    long_body = ("Lorem ipsum dolor sit amet. " * 40 + "\n\n") * 30
+    md = (
+        "# T\n\n"
+        + "".join(f"## {i}. Section {i}\n\n{long_body}" for i in range(1, 6))
+        + "## References\n\n"
+        + "\n".join(f"- Ref{i} et al. (2020). *X*. arXiv:{i}." for i in range(20))
+    )
+    out = _review_input(md, max_chars=8000)
+    assert len(out) <= 11000
+    # Every heading survives, references included in full, cuts marked.
+    for i in range(1, 6):
+        assert f"## {i}. Section {i}" in out
+    assert "Ref19 et al." in out
+    assert "omitted" in out
+
+
 def test_reassemble_round_trip():
     md = _reassemble_paper(
         "M", [("Abstract", "body A"), ("3. Method", "body B")],
