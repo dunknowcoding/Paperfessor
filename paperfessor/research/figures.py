@@ -46,11 +46,13 @@ def generate_block_diagram(
     ax.set_xlim(0.0, 10.0)
     ax.set_ylim(0.0, 5.0)
     ax.axis("off")
-    # Title at the top.
-    ax.text(5.0, 4.5, f"Architecture of {method}",
-            ha="center", va="center", fontsize=14, fontweight="bold")
+    # FONT CONTRACT: this 9-in design renders at ~6 in in the paper
+    # (figure*, 0.85\textwidth), a 0.66 scale factor. Every font here
+    # must be >= 11 pt so the EFFECTIVE size stays >= 7 pt on paper.
+    ax.text(5.0, 4.5, f"Architecture of {method[:60]}",
+            ha="center", va="center", fontsize=15, fontweight="bold")
     ax.text(5.0, 4.05, f"for {direction}", ha="center", va="center",
-            fontsize=10, style="italic", color="#555")
+            fontsize=11, style="italic", color="#555")
     # Boxes for the 4 stages.
     boxes = [
         ("Raw Input",
@@ -63,8 +65,12 @@ def generate_block_diagram(
     ]
     # Geometry: 4 boxes with real gaps so titles can never collide
     # (the old 1.8-wide boxes at 2.2 pitch made 11pt titles overlap).
+    # Arrow-length guard: the gap between boxes must stay >= 0.3
+    # design units or the connecting arrows shrink to unreadable
+    # stubs.
     box_w, box_h = 2.1, 1.6
     gap = 0.35
+    assert gap >= 0.3, "inter-box gap too small; arrows become stubs"
     total = 4 * box_w + 3 * gap
     x_start = (10.0 - total) / 2
     x_positions = [x_start + i * (box_w + gap) for i in range(4)]
@@ -79,12 +85,12 @@ def generate_block_diagram(
         )
         ax.add_patch(rect)
         ax.text(x + box_w / 2, y + box_h - 0.3, title,
-                ha="center", va="center", fontsize=9.5, fontweight="bold")
+                ha="center", va="center", fontsize=12, fontweight="bold")
         wrapped = "\n".join(
-            textwrap.fill(line, width=20) for line in body.splitlines()
+            textwrap.fill(line, width=18) for line in body.splitlines()
         )
         ax.text(x + box_w / 2, y + 0.55, wrapped,
-                ha="center", va="center", fontsize=7.5)
+                ha="center", va="center", fontsize=11)
         centers.append(x + box_w)
     # Arrows between boxes.
     for i in range(3):
@@ -96,7 +102,7 @@ def generate_block_diagram(
         )
     # Footnote.
     ax.text(5.0, 0.4, "Trained on raw windows; evaluated on labeled windows.",
-            ha="center", va="center", fontsize=8, color="#666")
+            ha="center", va="center", fontsize=10, color="#555")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

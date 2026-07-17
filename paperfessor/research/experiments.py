@@ -410,6 +410,8 @@ def plot_results(rows: list[MetricRow], out_path: Path) -> Path | None:
     methods = sorted({r.method for r in ok})
     x = np.arange(len(datasets), dtype=float)
     width = 0.8 / max(1, len(methods))
+    # FONT CONTRACT: this 7-in design renders at ~6 in (figure*), a
+    # 0.86 factor — fonts must be >= 9 pt for >= 7.5 pt effective.
     fig, ax = plt.subplots(figsize=(7.0, 3.2), dpi=200)
     for mi, method in enumerate(methods):
         vals, errs = [], []
@@ -420,10 +422,11 @@ def plot_results(rows: list[MetricRow], out_path: Path) -> Path | None:
         ax.bar(x + mi * width, vals, width=width * 0.92, yerr=errs,
                capsize=2, label=method)
     ax.set_xticks(x + 0.4 - width / 2)
-    ax.set_xticklabels(datasets, fontsize=8)
-    ax.set_ylabel("Best F1")
+    ax.set_xticklabels(datasets, fontsize=10)
+    ax.set_ylabel("Best F1", fontsize=10)
+    ax.tick_params(axis="y", labelsize=9)
     ax.set_ylim(0, 1)
-    ax.legend(fontsize=7, ncol=2, frameon=False)
+    ax.legend(fontsize=9, ncol=2, frameon=False)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)

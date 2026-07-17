@@ -99,8 +99,21 @@ class CoordinationPolicy:
 POLICY = CoordinationPolicy()
 
 
-def _llm_budget_left(router: LLMRouter, policy: CoordinationPolicy = POLICY) -> bool:
+def _policy_from_settings(settings: Settings) -> CoordinationPolicy:
+    """Build the run's coordination policy from user settings (full
+    control via CLI flags, env vars, or the GUI settings tab)."""
+    return CoordinationPolicy(
+        max_method_rounds=getattr(settings, "max_method_rounds", 3),
+        max_ug_rounds=getattr(settings, "max_ug_rounds", 4),
+        max_section_redrafts=getattr(settings, "max_section_redrafts", 1),
+        max_inspection_rounds=getattr(settings, "max_inspection_rounds", 3),
+        max_llm_calls=getattr(settings, "max_llm_calls", 80),
+    )
+
+
+def _llm_budget_left(router: LLMRouter, policy: CoordinationPolicy | None = None) -> bool:
     """True while the run is under its LLM-call budget."""
+    policy = policy or POLICY
     try:
         calls = int(router.usage_snapshot()["totals"].get("calls", 0))
     except Exception:  # noqa: BLE001
@@ -110,7 +123,7 @@ def _llm_budget_left(router: LLMRouter, policy: CoordinationPolicy = POLICY) -> 
 
 def _method_strategy(
     archived: list[dict], direction: str,
-    policy: CoordinationPolicy = POLICY,
+    policy: CoordinationPolicy | None = None,
 ) -> tuple[str, str, str]:
     """Decide IMPROVE vs NEW for the next attempt.
 
@@ -123,6 +136,7 @@ def _method_strategy(
     structural reason (theory/model defect, no data) — it is
     treated as vetoed and the PhD designs something different.
     """
+    policy = policy or POLICY
     if not archived:
         return "new", "", ""
     dir_key = _slug_prefix(direction)
@@ -224,6 +238,10 @@ def run(
     budgets = dict(PHASE_BUDGETS)
     if phase_budgets:
         budgets.update(phase_budgets)
+
+    # 0. Coordination policy from user settings (CLI / GUI / env).
+    global POLICY
+    POLICY = _policy_from_settings(settings)
 
     # 0. SOUL integrity + workspace bootstrap.
     sha = soul_sha256()
@@ -2086,12 +2104,39 @@ def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
     defects: list[str] = []
     body, _, refs_block = paper_md.partition("## References")
     lowered = body.lower()
+    # Safeguard 1 — internal/process wording and private artifacts.
     for banned in ("the ms ", "the ug ", "master's student", "undergraduate",
-                   "paperfessor", "what changed", "doc_memo", "article_memo"):
+                   "paperfessor", "what changed", "doc_memo", "article_memo",
+                   "research_log", "code_log", "skill/", "minimax"):
         if banned in lowered:
             defects.append(
                 f"internal wording {banned.strip()!r} appears in the paper body"
             )
+    # Safeguard 2 — local paths and source filenames must never leak
+    # (drive letters, workspace paths, *.py names).
+    for pat, label in (
+        (r"\b[A-Za-z]:\\", "Windows drive path"),
+        (r"\bworkspace[/\\]", "workspace-relative path"),
+        (r"\b\w+\.py\b", "source filename"),
+        (r"/Users/|/home/", "POSIX home path"),
+    ):
+        m = re.search(pat, body)
+        if m:
+            defects.append(
+                f"private information leak: {label} {m.group(0)!r} in the paper body"
+            )
+    # Safeguard 3 — AI-style expressions (the classic tells).
+    for phrase in ("it is worth noting", "in recent years",
+                   "many researchers have", "delve into",
+                   "plays a crucial role",
+                   "extensive experiments demonstrate",
+                   "the rest of the paper is organized"):
+        if phrase in lowered:
+            defects.append(f"AI-style expression {phrase!r} — rewrite the sentence")
+    # Safeguard 4 — markdown footnote markers ([^1]) are not supported
+    # by the LaTeX converter and would print literally.
+    if re.search(r"\[\^\w+\]", paper_md):
+        defects.append("markdown footnote marker [^...] would print literally in the PDF")
     valid = _measured_number_tokens(workspace)
     if valid:
         for tok in sorted(set(re.findall(r"\b0\.\d{3}\b", body))):

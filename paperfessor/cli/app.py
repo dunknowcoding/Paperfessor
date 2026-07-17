@@ -134,6 +134,17 @@ def run(
     thinking: Optional[bool] = typer.Option(None, "--thinking/--no-thinking"),
     max_input_tokens: Optional[int] = typer.Option(None, "--max-input-tokens"),
     max_output_tokens: Optional[int] = typer.Option(None, "--max-output-tokens"),
+    max_llm_calls: Optional[int] = typer.Option(
+        None, "--max-llm-calls", help="Per-run LLM call budget (default 80)"),
+    max_method_rounds: Optional[int] = typer.Option(
+        None, "--max-method-rounds",
+        help="Improvement rounds before a method is declared defective (default 3)"),
+    max_ug_rounds: Optional[int] = typer.Option(
+        None, "--max-ug-rounds",
+        help="UG implement-verify-correct attempts (default 4)"),
+    max_inspection_rounds: Optional[int] = typer.Option(
+        None, "--max-inspection-rounds",
+        help="Whole-paper self-inspection cycles (default 3)"),
     verbose: bool = typer.Option(False, "--verbose", "-V"),
 ) -> None:
     """Start a new 3-agent run from a research direction."""
@@ -171,6 +182,14 @@ def run(
         settings.max_input_tokens = max_input_tokens
     if max_output_tokens is not None:
         settings.default_max_tokens = max_output_tokens
+    if max_llm_calls is not None:
+        settings.max_llm_calls = max_llm_calls
+    if max_method_rounds is not None:
+        settings.max_method_rounds = max_method_rounds
+    if max_ug_rounds is not None:
+        settings.max_ug_rounds = max_ug_rounds
+    if max_inspection_rounds is not None:
+        settings.max_inspection_rounds = max_inspection_rounds
     ensure_dirs()
 
     con = _console()

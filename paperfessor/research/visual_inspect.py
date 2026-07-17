@@ -232,11 +232,40 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
         # from the page's object list (best-effort; failures ignore
         # images rather than failing the page).
         image_area = 0.0
+        image_findings: list[str] = []
         try:
             for obj in page.get_objects(max_depth=4):
                 if getattr(obj, "type", None) == pdfium_c.FPDF_PAGEOBJ_IMAGE:
                     left, bottom, right, top = obj.get_bounds()
-                    image_area += max(0.0, right - left) * max(0.0, top - bottom)
+                    iw = max(0.0, right - left)
+                    ih = max(0.0, top - bottom)
+                    image_area += iw * ih
+                    # Proportion checks (hard for a text-only reviewer
+                    # to see): a figure narrower than ~1/5 of the page
+                    # is unreadable; one covering > 60% of the page
+                    # crowds out the text.
+                    if 0 < iw < 0.20 * page_w_pt and ih > 20:
+                        image_findings.append(
+                            f"figure only {iw:.0f}pt wide "
+                            f"({iw / page_w_pt:.0%} of page) — too small to read"
+                        )
+                    if iw * ih > 0.60 * page_w_pt * page_h_pt:
+                        image_findings.append(
+                            f"figure covers {iw * ih / (page_w_pt * page_h_pt):.0%} "
+                            f"of the page — dominates the layout"
+                        )
+                    # Native raster resolution vs placed size: an image
+                    # stretched beyond ~2x its pixel density prints
+                    # blurry.
+                    try:
+                        px_w, px_h = obj.get_px_size()
+                        if px_w and iw > 0 and (iw / 72.0) * 96 > px_w * 2:
+                            image_findings.append(
+                                f"figure upscaled ~{((iw / 72.0) * 96) / px_w:.1f}x "
+                                f"beyond its pixel resolution (blurry)"
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
         except Exception:  # noqa: BLE001
             pass
         density = (word_area + min(image_area, page_area)) / max(1.0, page_area)
@@ -325,6 +354,7 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
             findings.append(
                 f"{margin_violations} words cross the page margin"
             )
+        findings.extend(image_findings)
         if overlaps > 5:
             findings.append(f"{overlaps} word-bbox overlaps detected")
         # Title page flag: it's "passed" iff there are no findings

@@ -136,6 +136,29 @@ class _SettingsTab(_Tab):
         pf.addRow(QLabel("Max output tokens:"), self._max_output)
 
         layout.addWidget(provider_box)
+
+        # Coordination bounds — full user control over every agent
+        # loop (mirrors the CLI --max-* flags).
+        coord_box = QGroupBox("Coordination")
+        cf = QFormLayout(coord_box)
+        self._max_llm_calls = QSpinBox()
+        self._max_llm_calls.setRange(5, 1000)
+        self._max_llm_calls.setValue(getattr(s, "max_llm_calls", 80))
+        cf.addRow(QLabel("LLM call budget / run:"), self._max_llm_calls)
+        self._max_method_rounds = QSpinBox()
+        self._max_method_rounds.setRange(1, 10)
+        self._max_method_rounds.setValue(getattr(s, "max_method_rounds", 3))
+        cf.addRow(QLabel("Method improvement rounds:"), self._max_method_rounds)
+        self._max_ug_rounds = QSpinBox()
+        self._max_ug_rounds.setRange(1, 10)
+        self._max_ug_rounds.setValue(getattr(s, "max_ug_rounds", 4))
+        cf.addRow(QLabel("UG code-fix rounds:"), self._max_ug_rounds)
+        self._max_inspection_rounds = QSpinBox()
+        self._max_inspection_rounds.setRange(1, 10)
+        self._max_inspection_rounds.setValue(getattr(s, "max_inspection_rounds", 3))
+        cf.addRow(QLabel("Paper self-inspection rounds:"), self._max_inspection_rounds)
+        layout.addWidget(coord_box)
+
         layout.addStretch(1)
         self.on_apply: Any = None
 
@@ -155,6 +178,10 @@ class _SettingsTab(_Tab):
         s.disable_reasoning = not s.thinking_mode
         s.max_input_tokens = self._max_input.value()
         s.default_max_tokens = self._max_output.value()
+        s.max_llm_calls = self._max_llm_calls.value()
+        s.max_method_rounds = self._max_method_rounds.value()
+        s.max_ug_rounds = self._max_ug_rounds.value()
+        s.max_inspection_rounds = self._max_inspection_rounds.value()
         return s
 
 

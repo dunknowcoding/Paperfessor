@@ -145,6 +145,18 @@ class LLMRouter:
         max_input = int(
             getattr(self._settings, "max_input_tokens", 1_000_000) or 1_000_000
         )
+        # Good defaults per deployment: cloud APIs take the maximum
+        # input we can give them; LOCAL models (Ollama / llama.cpp)
+        # would swap or OOM at 1M-token contexts, so unless the user
+        # explicitly set PAPERFESSOR_MAX_INPUT_TOKENS we cap local
+        # providers at a safe 32K.
+        import os as _os
+        provider_value = getattr(self._settings.provider, "value",
+                                 str(self._settings.provider))
+        if (provider_value in ("ollama", "llamacpp")
+                and "PAPERFESSOR_MAX_INPUT_TOKENS" not in _os.environ
+                and max_input > 32_768):
+            max_input = 32_768
         system_budget = self._estimate_tokens(system)
         user_budget = max(0, max_input - system_budget - 64)
         user = self._truncate_to_tokens(user, user_budget)
