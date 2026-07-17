@@ -4,13 +4,13 @@ See the individual modules for status enums and the workspace
 contract.
 """
 
-from src.agents.base import _WorkspaceAgent
-from src.agents.master import MasterStudent
-from src.agents.phd import GuideTask, PhDStudent
-from src.agents.status import (
+from paperfessor.agents.base import _WorkspaceAgent
+from paperfessor.agents.master import MasterStudent
+from paperfessor.agents.phd import GuideTask, PhDStudent
+from paperfessor.agents.status import (
     MasterStatus, PhDStatus, UndergradStatus,
 )
-from src.agents.undergrad import Undergraduate
+from paperfessor.agents.undergrad import Undergraduate
 
 __all__ = [
     "GuideTask",

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.research.latex import NEURIPS_PREAMBLE_TEMPLATE, write_tex
+from paperfessor.research.latex import NEURIPS_PREAMBLE_TEMPLATE, write_tex
 
 
 SAMPLE_MD = """# Sample Paper Title

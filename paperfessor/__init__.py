@@ -12,6 +12,6 @@ import sys
 # already treats the workspace as the only disposable runtime area.
 sys.dont_write_bytecode = True
 
-from src._meta import __author__, __license__, __version__
+from paperfessor._meta import __author__, __license__, __version__
 
 __all__ = ["__author__", "__license__", "__version__"]

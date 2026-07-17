@@ -14,8 +14,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from src.config import Settings
-from src.llm.router import LLMRouter
+from paperfessor.config import Settings
+from paperfessor.llm.router import LLMRouter
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class _WorkspaceAgent:
 
     def _compose_system(self, system: str, *, with_skills: bool) -> str:
         try:
-            from src.prompting import compose_system_prompt
+            from paperfessor.prompting import compose_system_prompt
             return compose_system_prompt(self._group, system, with_skills=with_skills)
         except Exception:  # noqa: BLE001
             return system
@@ -137,12 +137,12 @@ class _WorkspaceAgent:
         Useful for diagnostics: ``print(phd.skills_block())`` shows
         exactly what the PhD sees prepended to its system prompt.
         """
-        from src.skills import format_for_prompt, list_skills
+        from paperfessor.skills import format_for_prompt, list_skills
         return format_for_prompt(list_skills(self._group))
 
     def list_skills(self) -> list:
         """Return the list of :class:`src.skills.Skill` for this agent."""
-        from src.skills import list_skills as _list
+        from paperfessor.skills import list_skills as _list
         return _list(self._group)
 
     # ---- Properties ---------------------------------------------------

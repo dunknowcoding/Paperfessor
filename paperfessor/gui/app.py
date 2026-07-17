@@ -25,10 +25,10 @@ from PyQt6.QtWidgets import (
     QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from src._meta import __version__
-from src.config import Settings, Theme, load_settings
-from src.gui.theme import palette_for, stylesheet
-from src.i18n import t
+from paperfessor._meta import __version__
+from paperfessor.config import Settings, Theme, load_settings
+from paperfessor.gui.theme import palette_for, stylesheet
+from paperfessor.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ class _SettingsTab(_Tab):
         self.on_apply: Any = None
 
     def apply(self) -> Settings:
-        from src.config import ProviderName
+        from paperfessor.config import ProviderName
         s = load_settings()
         try:
             s.provider = ProviderName(self._provider.currentData() or "minimax")
@@ -295,7 +295,7 @@ class _PaperTab(_Tab):
                 w.deleteLater()
 
     def reload(self) -> None:
-        from src.workspace import workspace_dir
+        from paperfessor.workspace import workspace_dir
         body = workspace_dir() / "paper" / "body"
         pdf = body / "paper.pdf"
         md = body / "paper.md"
@@ -405,7 +405,7 @@ class _PaperfessorWindow(QMainWindow):
 
     def _refresh_tokens(self) -> None:
         try:
-            from src.llm.router import get_default_router
+            from paperfessor.llm.router import get_default_router
             snap = get_default_router().usage_snapshot()
         except Exception:  # noqa: BLE001
             return
@@ -444,8 +444,8 @@ class _PaperfessorWindow(QMainWindow):
 
         def _worker() -> None:
             try:
-                from src.llm.router import get_default_router
-                from src.runner.pipeline import run as pipeline_run
+                from paperfessor.llm.router import get_default_router
+                from paperfessor.runner.pipeline import run as pipeline_run
                 router = get_default_router()
                 router._settings = settings  # type: ignore[attr-defined]
                 result = pipeline_run(direction, settings=settings, router=router)
@@ -464,7 +464,7 @@ class _PaperfessorWindow(QMainWindow):
 
     def _on_settings_applied(self, new_settings: Settings) -> None:
         self._settings = new_settings
-        from src.llm.router import get_default_router
+        from paperfessor.llm.router import get_default_router
         get_default_router()._settings = new_settings  # type: ignore[attr-defined]
         self.setStyleSheet(stylesheet(
             palette_for(new_settings.theme.value if hasattr(new_settings.theme, "value") else str(new_settings.theme)),

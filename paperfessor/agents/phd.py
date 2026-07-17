@@ -18,12 +18,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, TYPE_CHECKING
 
-from src.agents.base import _WorkspaceAgent
-from src.agents.status import PhDStatus
+from paperfessor.agents.base import _WorkspaceAgent
+from paperfessor.agents.status import PhDStatus
 
 if TYPE_CHECKING:
-    from src.config import Settings
-    from src.llm.router import LLMRouter
+    from paperfessor.config import Settings
+    from paperfessor.llm.router import LLMRouter
 
 logger = logging.getLogger(__name__)
 
@@ -704,12 +704,12 @@ class PhDStudent(_WorkspaceAgent):
         fails). The LLM is the designer; this method is the
         orchestrator that calls the LLM and executes the result.
         """
-        from src.research.venues import (
+        from paperfessor.research.venues import (
             _VENUE_TEMPLATES,
             download_venue_template,
             venue_label,
         )
-        from src.research.sources.venue_index import (
+        from paperfessor.research.sources.venue_index import (
             primary_venue_for_direction,
         )
 
@@ -779,7 +779,7 @@ class PhDStudent(_WorkspaceAgent):
                     break
         else:
             # Reverse-lookup the id from the override name.
-            from src.research.sources.venue_index import (
+            from paperfessor.research.sources.venue_index import (
                 NEURIPS_S, ICML_S, ICLR_S, CVPR_S, ICCV_S, ECCV_S,
                 ACL_S, EMNLP_S, NAACL_S, KDD_S, AAAI_S, IJCAI_S,
                 UAI_S, AISTATS_S, ICRA_S, IROS_S,
@@ -843,7 +843,7 @@ class PhDStudent(_WorkspaceAgent):
         The PhD calls this at the end of every pipeline.run().
         """
         from datetime import datetime as _dt
-        from src.memory import record_run as _record
+        from paperfessor.memory import record_run as _record
 
         return _record(
             direction=direction,
@@ -872,7 +872,7 @@ class PhDStudent(_WorkspaceAgent):
 
         Mirror of the YAML on disk. Use :meth:`lookup_method` to query.
         """
-        from src.memory import record_archived as _record
+        from paperfessor.memory import record_archived as _record
 
         return _record(
             research_area=research_area,
@@ -887,7 +887,7 @@ class PhDStudent(_WorkspaceAgent):
 
     def list_runs(self, limit: int = 50) -> list[dict]:
         """Read run history. The PhD uses this to spot prior attempts."""
-        from src.memory import list_runs as _list
+        from paperfessor.memory import list_runs as _list
 
         return _list(limit=limit)
 
@@ -900,7 +900,7 @@ class PhDStudent(_WorkspaceAgent):
         attempt was made. The PhD uses this to skip methods that have
         already succeeded or that were vetoed.
         """
-        from src.memory import lookup_method as _lookup
+        from paperfessor.memory import lookup_method as _lookup
 
         return _lookup(
             research_area=research_area, method=method, success_only=success_only
@@ -908,13 +908,13 @@ class PhDStudent(_WorkspaceAgent):
 
     def list_archived_db(self, limit: int = 100) -> list[dict]:
         """List all archived attempts from the DB (most-recent first)."""
-        from src.memory import list_archived as _list
+        from paperfessor.memory import list_archived as _list
 
         return _list(limit=limit)
 
     def memory_stats(self) -> dict:
         """Aggregate counts (runs / runs_ok / archived)."""
-        from src.memory import stats as _stats
+        from paperfessor.memory import stats as _stats
 
         return _stats()
 
@@ -947,7 +947,7 @@ def _parse_venue_id(text: str) -> str | None:
 
 def _match_known(sid: str) -> str | None:
     """Look up ``sid`` in the venue catalogue, allowing partial matches."""
-    from src.research.venues import _VENUE_TEMPLATES
+    from paperfessor.research.venues import _VENUE_TEMPLATES
     if sid in _VENUE_TEMPLATES:
         return sid
     # Partial match: find a known id that starts with ``sid``.

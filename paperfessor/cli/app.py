@@ -12,8 +12,8 @@ import typer
 from rich.console import Console
 from rich.logging import RichHandler
 
-from src._meta import __version__
-from src.cli.display import (
+from paperfessor._meta import __version__
+from paperfessor.cli.display import (
     VALID_COLORS,
     VALID_STYLES,
     banner,
@@ -25,11 +25,11 @@ from src.cli.display import (
     success as display_success,
     warning as display_warning,
 )
-from src.config import ProviderName, load_settings
-from src.i18n import t
-from src.llm.discovery import list_models, pick_default_model
-from src.llm.router import get_default_router
-from src.paths import ensure_dirs, memory_db_path, workspace_dir
+from paperfessor.config import ProviderName, load_settings
+from paperfessor.i18n import t
+from paperfessor.llm.discovery import list_models, pick_default_model
+from paperfessor.llm.router import get_default_router
+from paperfessor.paths import ensure_dirs, memory_db_path, workspace_dir
 
 app = typer.Typer(
     name="paperfessor",
@@ -139,11 +139,11 @@ def run(
     """Start a new 3-agent run from a research direction."""
     _setup_logging(verbose)
     if language:
-        from src.i18n import set_language
+        from paperfessor.i18n import set_language
         set_language(language)
     settings = load_settings()
     if depth and depth in ("shallow", "normal", "deep"):
-        from src.config import Depth
+        from paperfessor.config import Depth
         settings.depth = Depth(depth)
     if venue:
         settings.target_venue = venue
@@ -181,7 +181,7 @@ def run(
     # Hot-swap the router's settings to the overrides the user just set.
     router._settings = settings  # type: ignore[attr-defined]
 
-    from src.runner.pipeline import run as pipeline_run
+    from paperfessor.runner.pipeline import run as pipeline_run
     result = pipeline_run(direction, settings=settings, router=router)
     display_section(
         con, "run finished",
@@ -251,7 +251,7 @@ def models_list(
     slug = (provider or settings.provider.value).lower()
     api_key = None
     if slug not in ("ollama", "llamacpp", "anthropic"):
-        from src.llm.security import get_api_key
+        from paperfessor.llm.security import get_api_key
         api_key = get_api_key(slug)
     models = list_models(slug, settings.base_url, api_key)
     con = _console()
@@ -273,7 +273,7 @@ def models_pick(
     slug = (provider or settings.provider.value).lower()
     api_key = None
     if slug not in ("ollama", "llamacpp", "anthropic"):
-        from src.llm.security import get_api_key
+        from paperfessor.llm.security import get_api_key
         api_key = get_api_key(slug)
     models = list_models(slug, settings.base_url, api_key)
     pick = pick_default_model(slug, models)
@@ -305,7 +305,7 @@ def key_set(
     provider: str = typer.Argument(...),
     api_key: str = typer.Option(..., "--key", "-k", prompt=True, hide_input=True),
 ) -> None:
-    from src.llm.security import set_api_key
+    from paperfessor.llm.security import set_api_key
     set_api_key(provider, api_key)
     con = _console()
     display_success(con, f"stored key for provider '{provider}' in OS keychain")
@@ -313,7 +313,7 @@ def key_set(
 
 @key_app.command("list")
 def key_list() -> None:
-    from src.llm.security import list_configured_providers
+    from paperfessor.llm.security import list_configured_providers
     providers = list_configured_providers()
     con = _console()
     if not providers:
@@ -325,7 +325,7 @@ def key_list() -> None:
 
 @key_app.command("test")
 def key_test(provider: str = typer.Argument(...)) -> None:
-    from src.llm.security import has_api_key
+    from paperfessor.llm.security import has_api_key
     if not has_api_key(provider):
         ec = _err_console()
         ec.print(f"[danger]x[/danger] no key for provider '{provider}'")
@@ -369,9 +369,9 @@ def config_show() -> None:
 @memory_app.command("stats")
 def memory_stats() -> None:
     """Show aggregate counts in the long-term memory DB."""
-    from src.agents import PhDStudent
-    from src.llm.router import get_default_router
-    from src.paths import workspace_dir
+    from paperfessor.agents import PhDStudent
+    from paperfessor.llm.router import get_default_router
+    from paperfessor.paths import workspace_dir
     settings = load_settings()
     router = get_default_router()
     phd = PhDStudent(settings, router, workspace_dir())
@@ -382,9 +382,9 @@ def memory_stats() -> None:
 @memory_app.command("runs")
 def memory_runs(limit: int = typer.Option(20, "--limit", "-n")) -> None:
     """List recent runs (most-recent first)."""
-    from src.agents import PhDStudent
-    from src.llm.router import get_default_router
-    from src.paths import workspace_dir
+    from paperfessor.agents import PhDStudent
+    from paperfessor.llm.router import get_default_router
+    from paperfessor.paths import workspace_dir
     settings = load_settings()
     router = get_default_router()
     phd = PhDStudent(settings, router, workspace_dir())
@@ -403,9 +403,9 @@ def memory_runs(limit: int = typer.Option(20, "--limit", "-n")) -> None:
 @memory_app.command("archived")
 def memory_archived(limit: int = typer.Option(20, "--limit", "-n")) -> None:
     """List archived attempts from the long-term memory DB."""
-    from src.agents import PhDStudent
-    from src.llm.router import get_default_router
-    from src.paths import workspace_dir
+    from paperfessor.agents import PhDStudent
+    from paperfessor.llm.router import get_default_router
+    from paperfessor.paths import workspace_dir
     settings = load_settings()
     router = get_default_router()
     phd = PhDStudent(settings, router, workspace_dir())
@@ -439,7 +439,7 @@ def workspace_reset(
     ),
 ) -> None:
     """Reset the active workspace for a new paper or a fresh takeover."""
-    from src.workspace_reset import hard_reset_workspace, prepare_workspace_for_new_paper
+    from paperfessor.workspace_reset import hard_reset_workspace, prepare_workspace_for_new_paper
 
     if fresh_owner:
         path = hard_reset_workspace()
@@ -457,7 +457,7 @@ def workspace_reset(
 
 @soul_app.command("show")
 def soul_show() -> None:
-    from src._meta import SOUL_PATH, soul_sha256
+    from paperfessor._meta import SOUL_PATH, soul_sha256
     if not SOUL_PATH.is_file():
         ec = _err_console()
         ec.print(f"[danger]x[/danger] SOUL.md not found at {SOUL_PATH}")
@@ -475,7 +475,7 @@ def soul_show() -> None:
 @app.command()
 def doctor() -> None:
     """Print environment + dependency diagnostics."""
-    from src.llm.security import list_configured_providers
+    from paperfessor.llm.security import list_configured_providers
     info = {
         "version": __version__,
         "python": sys.version.split()[0],

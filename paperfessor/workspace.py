@@ -134,7 +134,7 @@ WORKSPACE_TEMPLATES: Final[dict[str, str]] = {
 
 def workspace_dir() -> Path:
     """The runtime workspace directory at the project root."""
-    from src.paths import workspace_dir as _wd
+    from paperfessor.paths import workspace_dir as _wd
 
     return _wd()
 
@@ -178,7 +178,7 @@ def bootstrap_workspace(target: Path | None = None, *, force: bool = False) -> P
 
 def archive_workspace(target: Path | None = None, archive_dir: Path | None = None) -> Path:
     """Move an existing workspace into ``archive_dir``."""
-    from src.paths import workspace_root
+    from paperfessor.paths import workspace_root
 
     target = Path(target) if target is not None else workspace_dir()
     archive_dir = Path(archive_dir) if archive_dir is not None else workspace_root() / "archived"

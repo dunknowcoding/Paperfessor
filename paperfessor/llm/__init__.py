@@ -1,16 +1,16 @@
 """LLM subsystem: types, providers, security, router, and discovery."""
 
-from src.llm.base import (
+from paperfessor.llm.base import (
     ChatMessage, ChatRequest, ChatResponse, FinishReason, Role, ToolCall, Usage,
 )
-from src.llm.discovery import list_models, pick_default_model
-from src.llm.providers import (
+from paperfessor.llm.discovery import list_models, pick_default_model
+from paperfessor.llm.providers import (
     PROVIDER_CATALOG, ProviderInfo, get_provider_info, list_providers,
 )
-from src.llm.router import (
+from paperfessor.llm.router import (
     LLMError, LLMRouter, get_default_router, reset_default_router,
 )
-from src.llm.security import (
+from paperfessor.llm.security import (
     SecretStoreError, delete_api_key, get_api_key, has_api_key,
     list_configured_providers, set_api_key,
 )

@@ -31,8 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-from src._meta import soul_sha256
-from src.paths import ensure_dirs, memory_db_path
+from paperfessor._meta import soul_sha256
+from paperfessor.paths import ensure_dirs, memory_db_path
 
 logger = logging.getLogger(__name__)
 

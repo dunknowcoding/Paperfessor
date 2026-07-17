@@ -16,7 +16,7 @@ import shutil
 from pathlib import Path
 from typing import Final
 
-from src.workspace import WORKSPACE_TEMPLATES, bootstrap_workspace, workspace_dir
+from paperfessor.workspace import WORKSPACE_TEMPLATES, bootstrap_workspace, workspace_dir
 
 
 _RESET_TEMPLATE_PATHS: Final[tuple[str, ...]] = (

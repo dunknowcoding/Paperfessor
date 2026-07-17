@@ -19,7 +19,7 @@ from typing import Final
 import keyring
 from cryptography.fernet import Fernet, InvalidToken
 
-from src.paths import ensure_dirs, workspace_dir
+from paperfessor.paths import ensure_dirs, workspace_dir
 
 # Re-export ``data_dir`` as an alias of the workspace's ``.secrets``
 # parent so the encrypted-fallback keyring backend keeps working
@@ -29,7 +29,7 @@ def data_dir() -> Path:
 
 
 # Make ``data_dir`` importable from this module's namespace too,
-# so callers that did ``from src.llm.security import data_dir``
+# so callers that did ``from paperfessor.llm.security import data_dir``
 # keep working.
 __all__ = [
     "SecretStoreError", "data_dir", "delete_api_key", "get_api_key",

@@ -18,7 +18,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.theme import Theme
 
-from src._meta import __version__
+from paperfessor._meta import __version__
 
 VALID_STYLES: Final[tuple[str, ...]] = ("minimal", "default", "vibrant")
 VALID_COLORS: Final[tuple[str, ...]] = ("auto", "dark", "light", "monochrome")

@@ -32,8 +32,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from src.config import ProviderName, Settings
-from src.llm.base import (
+from paperfessor.config import ProviderName, Settings
+from paperfessor.llm.base import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
@@ -41,7 +41,7 @@ from src.llm.base import (
     Role,
     Usage,
 )
-from src.llm.security import get_api_key
+from paperfessor.llm.security import get_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +425,7 @@ def get_default_router() -> LLMRouter:
     global _default_router
     with _default_lock:
         if _default_router is None:
-            from src.config import load_settings
+            from paperfessor.config import load_settings
             _default_router = LLMRouter(load_settings())
         return _default_router
 

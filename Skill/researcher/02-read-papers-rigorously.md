@@ -30,7 +30,7 @@ You have two real read paths.
 ### Path A: Offline PDF (the right path when an arXiv / OA PDF exists)
 
 ```python
-from src.agents.master import MasterStudent
+from paperfessor.agents.master import MasterStudent
 ms = MasterStudent(settings, router, workspace)
 papers = ms.search_papers("...", max_arxiv=3, max_venue=3)  # arXiv + OpenAlex
 scholar = ms.search_web("...", limit=5)                     # Scholar

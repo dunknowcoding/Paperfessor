@@ -38,22 +38,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from src._meta import SOUL_PATH, soul_sha256
-from src.agents.master import (
+from paperfessor._meta import SOUL_PATH, soul_sha256
+from paperfessor.agents.master import (
     Evidence,
     MasterStudent,
     PaperInaccessible,
     PaperRecord,
 )
-from src.agents.phd import GuideTask, PhDStudent
-from src.agents.status import MasterStatus, PhDStatus, UndergradStatus
-from src.agents.undergrad import Undergraduate
-from src.config import Settings
-from src.llm.router import LLMRouter
-from src.monitor import Supervisor, WorkerName
-from src.prompting import compose_system_prompt
-from src.workspace import workspace_dir
-from src.workspace_reset import prepare_workspace_for_new_paper
+from paperfessor.agents.phd import GuideTask, PhDStudent
+from paperfessor.agents.status import MasterStatus, PhDStatus, UndergradStatus
+from paperfessor.agents.undergrad import Undergraduate
+from paperfessor.config import Settings
+from paperfessor.llm.router import LLMRouter
+from paperfessor.monitor import Supervisor, WorkerName
+from paperfessor.prompting import compose_system_prompt
+from paperfessor.workspace import workspace_dir
+from paperfessor.workspace_reset import prepare_workspace_for_new_paper
 
 logger = logging.getLogger(__name__)
 
@@ -759,7 +759,7 @@ def _phase_code(
     run is sent back to the LLM with the error, up to 3 rounds.
     There is no fake-code fallback and no placeholder metric.
     """
-    from src.research.experiments import (
+    from paperfessor.research.experiments import (
         ModelRunError,
         plot_results,
         rows_to_markdown,
@@ -809,7 +809,7 @@ def _phase_code(
     model_path = code_dir / f"model_{safe_method}.py"
 
     # 1. Smoke-test fixture: a small slice of REAL data.
-    from src.research import datasets as ds_mod
+    from paperfessor.research import datasets as ds_mod
     smoke_info = ds_mod.fetch(experiment_datasets[0], ug.workspace)
     import numpy as np
     smoke_train = smoke_info.path / "smoke_train.npy"
@@ -889,7 +889,7 @@ def _phase_code(
     fig_path = plot_results(rows, ug.workspace / "src" / "figures" / "results_f1.png")
     # Raw-data sample figure (real test segment, labeled anomalies).
     try:
-        from src.research.experiments import plot_dataset_sample
+        from paperfessor.research.experiments import plot_dataset_sample
         plot_dataset_sample(
             smoke_info.path,
             ug.workspace / "src" / "figures" / "dataset_sample.png",
@@ -1054,7 +1054,7 @@ def _phase_write(
     paper_figures_dir.mkdir(parents=True, exist_ok=True)
     results = _load_run_results(phd.workspace)
     try:
-        from src.research.figures import generate_block_diagram
+        from paperfessor.research.figures import generate_block_diagram
         fig_path = phd._workspace / "src" / "figures" / "block_diagram.png"
         # Real dataset names from the experiment manifests — NOT the
         # survey paper titles (that bug crammed full titles into the
@@ -1138,7 +1138,7 @@ def _phase_write(
     # with REAL canonical works (searched live on arXiv, never
     # fabricated) when the survey alone leaves the list thin.
     if ref_count < 15:
-        from src.research.sources.arxiv import search as _ax_search
+        from paperfessor.research.sources.arxiv import search as _ax_search
         canonical_titles = [
             "Anomaly Transformer Time-Series Association Discrepancy",
             "USAD UnSupervised Anomaly Detection multivariate time series",
@@ -1207,7 +1207,7 @@ def _phase_write(
         )
     # 2. Build the .tex + .pdf with the venue's class.
     try:
-        from src.research.latex import build_pdf, write_tex
+        from paperfessor.research.latex import build_pdf, write_tex
         tex_path = write_tex(
             paper_path.read_text(encoding="utf-8"),
             paper_path.parent,
@@ -1231,7 +1231,7 @@ def _phase_write(
         visual_ok: bool | None = None
         if pdf_built:
             try:
-                from src.research.visual_inspect import inspect_pdf, summarize
+                from paperfessor.research.visual_inspect import inspect_pdf, summarize
                 checks = inspect_pdf(pdf_path)
                 visual_report = summarize(checks)
                 visual_ok = all(c.passed for c in checks)
@@ -2016,7 +2016,7 @@ def _assess_run_readiness(workspace: Path, paper_path: Path | None) -> RunReadin
     pdf_missing = False
     if paper_path is not None and paper_path.is_file() and paper_path.suffix.lower() == ".pdf":
         try:
-            from src.research.visual_inspect import inspect_pdf
+            from paperfessor.research.visual_inspect import inspect_pdf
             checks = inspect_pdf(paper_path)
             visual_ok = bool(checks) and all(c.passed for c in checks)
         except Exception:  # noqa: BLE001

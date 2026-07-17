@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.prompting import compose_system_prompt
+from paperfessor.prompting import compose_system_prompt
 
 
 def test_compose_system_prompt_includes_guardrails_and_shared_skills() -> None:

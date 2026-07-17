@@ -83,7 +83,7 @@ def t(key: str, /, **kwargs: Any) -> str:
 
 # Bootstrap from settings (env or default).
 try:
-    from src.config import load_settings
+    from paperfessor.config import load_settings
     set_language(load_settings().language)
 except Exception:  # noqa: BLE001
     set_language(_FALLBACK_LANG)

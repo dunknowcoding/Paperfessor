@@ -141,7 +141,7 @@ function Test-VisualInspect {
     $py = @"
 import sys
 sys.path.insert(0, r'$ProjectRoot\src')
-from src.research.visual_inspect import inspect_pdf, overall_exit_code
+from paperfessor.research.visual_inspect import inspect_pdf, overall_exit_code
 from pathlib import Path
 pdf = Path(r'$Workspace\paper\body\paper.pdf')
 if not pdf.exists():

@@ -23,17 +23,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
-from src.agents.base import _WorkspaceAgent
-from src.agents.phd import GuideTask
-from src.agents.status import MasterStatus
-from src.research.pdf_loader import PdfError, load_text
-from src.research.sources import arxiv, openalex
-from src.research.sources.venue_index import venue_label, venues_for_direction
-from src.research import web as web_tools
+from paperfessor.agents.base import _WorkspaceAgent
+from paperfessor.agents.phd import GuideTask
+from paperfessor.agents.status import MasterStatus
+from paperfessor.research.pdf_loader import PdfError, load_text
+from paperfessor.research.sources import arxiv, openalex
+from paperfessor.research.sources.venue_index import venue_label, venues_for_direction
+from paperfessor.research import web as web_tools
 
 if TYPE_CHECKING:
-    from src.config import Settings
-    from src.llm.router import LLMRouter
+    from paperfessor.config import Settings
+    from paperfessor.llm.router import LLMRouter
 
 
 logger = logging.getLogger(__name__)
@@ -561,7 +561,7 @@ class MasterStudent(_WorkspaceAgent):
                 # OpenAlex paper with DOI: try to find a free arXiv
                 # version via Semantic Scholar. If that fails too, the
                 # caller falls back to using the abstract only.
-                from src.research.sources.s2 import (
+                from paperfessor.research.sources.s2 import (
                     find_arxiv_id_for_doi as _s2_doi,
                 )
                 try:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from src.skills import format_for_prompt, list_skills
+from paperfessor.skills import format_for_prompt, list_skills
 
 
 _GROUP_WRITE_SCOPE: Final[dict[str, tuple[str, ...]]] = {

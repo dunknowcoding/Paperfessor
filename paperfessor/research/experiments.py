@@ -260,7 +260,7 @@ def run_experiments(
     ``error`` when the model failed; the numbers of failed runs are
     NaN and must not appear in the paper as results.
     """
-    from src.research import datasets as ds
+    from paperfessor.research import datasets as ds
 
     rows: list[MetricRow] = []
     manifests: dict[str, dict] = {}

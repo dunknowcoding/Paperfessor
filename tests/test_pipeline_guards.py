@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.runner.pipeline import _assess_run_readiness, _cleanup_python_caches
-from src.workspace import bootstrap_workspace
+from paperfessor.runner.pipeline import _assess_run_readiness, _cleanup_python_caches
+from paperfessor.workspace import bootstrap_workspace
 
 
 def test_assess_run_readiness_flags_blocked_survey_and_fallback_code(tmp_path: Path) -> None:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.workspace import bootstrap_workspace
-from src.workspace_reset import hard_reset_workspace, prepare_workspace_for_new_paper
+from paperfessor.workspace import bootstrap_workspace
+from paperfessor.workspace_reset import hard_reset_workspace, prepare_workspace_for_new_paper
 
 
 def test_prepare_workspace_for_new_paper_clears_active_state_but_keeps_assets(tmp_path: Path) -> None:

@@ -24,13 +24,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from src.agents.base import _WorkspaceAgent
-from src.agents.phd import GuideTask
-from src.agents.status import UndergradStatus
+from paperfessor.agents.base import _WorkspaceAgent
+from paperfessor.agents.phd import GuideTask
+from paperfessor.agents.status import UndergradStatus
 
 if TYPE_CHECKING:
-    from src.config import Settings
-    from src.llm.router import LLMRouter
+    from paperfessor.config import Settings
+    from paperfessor.llm.router import LLMRouter
 
 
 logger = logging.getLogger(__name__)
@@ -144,7 +144,7 @@ class Undergraduate(_WorkspaceAgent):
         to ``workspace/src/figures/<pdf-stem>/page_NNNN.png``.
         """
         self.set_status(UndergradStatus.CODING)
-        from src.research import web as web_tools
+        from paperfessor.research import web as web_tools
         if out_path is None:
             out_path = self._workspace / "src" / "figures" / pdf_path.stem / f"page_{page_num:04d}.png"
         out_path = Path(out_path)
@@ -158,7 +158,7 @@ class Undergraduate(_WorkspaceAgent):
         or supplementary webpage. Returns the path to the saved PNG.
         """
         self.set_status(UndergradStatus.CODING)
-        from src.research import web as web_tools
+        from paperfessor.research import web as web_tools
         return web_tools.screenshot_url(url, out_path)
 
     # ---- LLM call (UG-flavored prompt) ---------------------------------
@@ -181,7 +181,7 @@ class Undergraduate(_WorkspaceAgent):
         Setup.
         """
         self.set_status(UndergradStatus.CODING)
-        from src.research import datasets
+        from paperfessor.research import datasets
         try:
             info = datasets.fetch(name, self._workspace)
         except Exception as exc:  # noqa: BLE001
@@ -220,7 +220,7 @@ class Undergraduate(_WorkspaceAgent):
         }
 
     def list_known_datasets(self) -> list[str]:
-        from src.research.datasets import list_known
+        from paperfessor.research.datasets import list_known
         return list_known()
 
     def clean(self) -> None:
