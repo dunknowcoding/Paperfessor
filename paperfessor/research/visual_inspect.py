@@ -323,8 +323,14 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
                 f"para_gap_median={para_gap_median:.1f}pt not in "
                 f"[{_PARA_GAP_MIN_PT},{_PARA_GAP_MAX_PT}]"
             )
-        # M9 / M10: too-close / too-far para gap counts.
-        if not is_last_page and para_total > 0:
+        # M9 / M10: too-close / too-far para gap counts. The ratio is
+        # only meaningful with a reasonable SAMPLE: with 2-4 gaps a
+        # single figure-float gap trips the ratio (1/3 = 33%), which
+        # is small-sample noise, not a layout defect. Require >= 5
+        # gaps, and skip the too-far check entirely on pages carrying
+        # a figure float (the float legitimately opens one large gap).
+        has_figure_float = image_area > 0
+        if not is_last_page and para_total >= 5:
             close_frac = para_too_close / para_total
             far_frac = para_too_far / para_total
             if close_frac > _PARA_CLOSE_TOO_MANY:
@@ -332,7 +338,7 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
                     f"para_gap_too_close={para_too_close}/{para_total} "
                     f"({close_frac:.0%}) > {_PARA_CLOSE_TOO_MANY:.0%}"
                 )
-            if far_frac > _PARA_FAR_TOO_MANY:
+            if far_frac > _PARA_FAR_TOO_MANY and not has_figure_float:
                 findings.append(
                     f"para_gap_too_far={para_too_far}/{para_total} "
                     f"({far_frac:.0%}) > {_PARA_FAR_TOO_MANY:.0%}"
