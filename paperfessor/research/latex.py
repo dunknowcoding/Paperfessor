@@ -471,18 +471,22 @@ def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
                 body_lines.append(r"  \centering")
                 body_lines.append(r"  \small")
                 body_lines.append(rf"  \resizebox{{{box}}}{{!}}{{%")
+                # booktabs rules (\toprule/\midrule/\bottomrule) —
+                # the professional table style every top venue uses;
+                # no vertical rules, generous rule weights.
                 body_lines.append(rf"  \begin{{tabular}}{{{col_spec}}}")
-                body_lines.append(r"    \hline")
+                body_lines.append(r"    \toprule")
                 body_lines.append(
-                    "    " + " & ".join(_md_inline_to_tex(c) for c in header) + r" \\ \hline"
+                    "    " + " & ".join(_md_inline_to_tex(c) for c in header) + r" \\"
                 )
+                body_lines.append(r"    \midrule")
                 for row in rows:
                     # Pad / trim ragged rows to the header width.
                     cells = (row + [""] * len(header))[:len(header)]
                     body_lines.append(
                         "    " + " & ".join(_md_inline_to_tex(c) for c in cells) + r" \\"
                     )
-                body_lines.append(r"    \hline")
+                body_lines.append(r"    \bottomrule")
                 body_lines.append(r"  \end{tabular}}")
                 # Caption from the table's content (a dataset-stats
                 # table must not be captioned "Measured results").

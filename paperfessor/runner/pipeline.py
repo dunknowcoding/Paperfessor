@@ -1186,10 +1186,18 @@ def _phase_code(
         return
 
     phd.set_status(PhDStatus.DISPATCHING)
-    phd.update_code_guide([
+    code_tasks = [
         GuideTask(text=f"Implement `Model` (fit/score contract) for: {method}"),
         GuideTask(text=f"Run k=3-seed experiments on: {', '.join(experiment_datasets)}"),
-    ])
+    ]
+    if speed_topic:
+        # The optimization directive is the PhD's dispatched
+        # instruction — posted to the guide like every other task.
+        code_tasks.append(GuideTask(
+            text="PhD directive: optimize runtime aggressively — this "
+                 "topic treats wall-clock as a first-class metric; use "
+                 "any acceleration available"))
+    phd.update_code_guide(code_tasks)
     ug.set_status(UndergradStatus.CODING)
     phd.set_status(PhDStatus.MONITORING)
 
@@ -1221,11 +1229,12 @@ def _phase_code(
             break
         ug.set_status(UndergradStatus.CODING)
         speed_note = (
-            "\nSPEED TOPIC: runtime is a first-class metric for this "
-            "research direction. Optimize aggressively with ANY "
-            "acceleration available (GPU, vectorization, batching, "
-            "algorithmic shortcuts) — wall-clock time is measured and "
-            "reported for every method on the same machine.\n"
+            "\nINSTRUCTION FROM THE SUPERVISING PhD (see code_guide.md): "
+            "runtime is a first-class metric for this research "
+            "direction — optimize aggressively with ANY acceleration "
+            "available (GPU, vectorization, batching, algorithmic "
+            "shortcuts). Wall-clock time is measured and reported for "
+            "every method on the same machine.\n"
         ) if speed_topic else ""
         reply = ug.ask(
             system=(

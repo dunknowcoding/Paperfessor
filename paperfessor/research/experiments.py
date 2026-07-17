@@ -443,8 +443,35 @@ def save_results(rows: list[MetricRow], manifests: dict[str, dict],
     return out_dir / "results.json"
 
 
+# Identity-keyed, colorblind-safe categorical palette (Okabe-Ito
+# subset; adjacency order validated: worst CVD dE 11.4, all checks
+# pass). "Ours" always wears the strong blue; baselines keep their
+# fixed colors across every figure — color follows the entity.
+_METHOD_ORDER_HINT = ("(ours)", "IsolationForest", "PCA-recon", "kNN-dist")
+_METHOD_COLORS = {
+    "ours": "#0072B2",
+    "IsolationForest": "#009E73",
+    "PCA-recon": "#E69F00",
+    "kNN-dist": "#CC79A7",
+}
+_INK = "#333333"
+_MUTED_INK = "#666666"
+
+
+def _method_color(method: str) -> str:
+    if method.endswith("(ours)"):
+        return _METHOD_COLORS["ours"]
+    return _METHOD_COLORS.get(method, "#7F7F7F")
+
+
 def plot_results(rows: list[MetricRow], out_path: Path) -> Path | None:
-    """Grouped bar chart of F1 by dataset/method (real numbers)."""
+    """Grouped bar chart of F1 by dataset/method (real numbers).
+
+    Visual design: ours-first fixed method order, identity-keyed
+    colorblind-safe colors, recessive dashed y-grid, subtle gray
+    error bars, and selective direct labels (values on the "ours"
+    bars only) — the full table in the paper is the numeric record.
+    """
     ok = [r for r in rows if not r.error]
     if not ok:
         return None
@@ -453,27 +480,55 @@ def plot_results(rows: list[MetricRow], out_path: Path) -> Path | None:
     import matplotlib.pyplot as plt
 
     datasets = sorted({r.dataset for r in ok})
-    methods = sorted({r.method for r in ok})
+    methods_present = {r.method for r in ok}
+    # Fixed order: ours first, then the canonical baseline order.
+    methods: list[str] = []
+    for hint in _METHOD_ORDER_HINT:
+        for m in sorted(methods_present):
+            if m in methods:
+                continue
+            if (hint == "(ours)" and m.endswith("(ours)")) or m == hint:
+                methods.append(m)
+    for m in sorted(methods_present):
+        if m not in methods:
+            methods.append(m)
     x = np.arange(len(datasets), dtype=float)
     width = 0.8 / max(1, len(methods))
     # FONT CONTRACT: this 7-in design renders at ~6 in (figure*), a
     # 0.86 factor — fonts must be >= 9 pt for >= 7.5 pt effective.
     fig, ax = plt.subplots(figsize=(7.0, 3.2), dpi=200)
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", linestyle=(0, (2, 4)), linewidth=0.6, color="#CCCCCC")
     for mi, method in enumerate(methods):
         vals, errs = [], []
         for d in datasets:
             row = next((r for r in ok if r.dataset == d and r.method == method), None)
             vals.append(row.f1_mean if row else 0.0)
             errs.append(row.f1_ci if row else 0.0)
-        ax.bar(x + mi * width, vals, width=width * 0.92, yerr=errs,
-               capsize=2, label=method)
+        bars = ax.bar(
+            x + mi * width, vals, width=width * 0.9, yerr=errs,
+            capsize=2, label=method, color=_method_color(method),
+            error_kw={"ecolor": _MUTED_INK, "elinewidth": 0.9},
+        )
+        # Selective direct labels: values on the "ours" bars only,
+        # in ink (text never wears the series color).
+        if method.endswith("(ours)"):
+            for rect, v in zip(bars, vals):
+                ax.annotate(
+                    f"{v:.2f}",
+                    xy=(rect.get_x() + rect.get_width() / 2, v),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha="center", va="bottom", fontsize=8.5, color=_INK,
+                )
     ax.set_xticks(x + 0.4 - width / 2)
-    ax.set_xticklabels(datasets, fontsize=10)
-    ax.set_ylabel("Best F1", fontsize=10)
-    ax.tick_params(axis="y", labelsize=9)
+    ax.set_xticklabels(datasets, fontsize=10, color=_INK)
+    ax.set_ylabel("Best F1", fontsize=10, color=_INK)
+    ax.tick_params(axis="y", labelsize=9, colors=_MUTED_INK)
+    ax.tick_params(axis="x", colors=_INK)
     ax.set_ylim(0, 1)
-    ax.legend(fontsize=9, ncol=2, frameon=False)
+    ax.legend(fontsize=9, ncol=2, frameon=False, loc="upper left")
     ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["left", "bottom"]].set_color("#AAAAAA")
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path)
@@ -509,10 +564,11 @@ def plot_dataset_sample(dataset_dir: Path, out_path: Path,
     fig, axes = plt.subplots(n_ch, 1, figsize=(7.0, min(3.6, 1.0 * n_ch + 0.6)),
                              dpi=200, sharex=True, squeeze=False)
     t = np.arange(start, start + len(seg_x))
+    shade_handle = None
     for ci in range(n_ch):
         ax = axes[ci][0]
-        ax.plot(t, seg_x[:, ci], lw=0.6, color="#1f77b4")
-        # Shade labeled anomaly regions.
+        ax.plot(t, seg_x[:, ci], lw=0.7, color=_METHOD_COLORS["ours"])
+        # Shade labeled anomaly regions (soft, recessive fill).
         in_anom = False
         a0 = 0
         for i, lab in enumerate(list(seg_y) + [0]):
@@ -520,16 +576,25 @@ def plot_dataset_sample(dataset_dir: Path, out_path: Path,
                 in_anom, a0 = True, i
             elif not lab and in_anom:
                 in_anom = False
-                ax.axvspan(t[a0], t[min(i, len(t) - 1)], color="#d62728", alpha=0.18, lw=0)
-        ax.set_ylabel(f"ch {ci}", fontsize=7)
-        ax.tick_params(labelsize=6)
+                shade_handle = ax.axvspan(
+                    t[a0], t[min(i, len(t) - 1)],
+                    color="#D55E00", alpha=0.15, lw=0,
+                )
+        ax.set_ylabel(f"ch {ci}", fontsize=9, color=_INK)
+        ax.tick_params(labelsize=8, colors=_MUTED_INK)
         ax.spines[["top", "right"]].set_visible(False)
-    axes[-1][0].set_xlabel("time index", fontsize=7)
+        ax.spines[["left", "bottom"]].set_color("#AAAAAA")
+    if shade_handle is not None:
+        axes[0][0].legend(
+            [shade_handle], ["labeled anomaly window"],
+            fontsize=8.5, frameon=False, loc="upper right",
+        )
+    axes[-1][0].set_xlabel("time index", fontsize=9, color=_INK)
     # Public dataset name only — the cache-dir name carries an
     # internal content hash that must not appear in the paper.
     public_name = dataset_dir.name.split("@", 1)[0]
     fig.suptitle(f"{public_name}: test segment with labeled anomalies (shaded)",
-                 fontsize=8)
+                 fontsize=10, color=_INK)
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path)
