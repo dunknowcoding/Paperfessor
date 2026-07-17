@@ -542,10 +542,26 @@ def _phd_review_workers(phd: PhDStudent, ms: MasterStudent, ug: Undergraduate) -
     except Exception:  # noqa: BLE001
         logger.exception("worker audit failed; continuing")
     for worker_name, worker in (("ms", ms), ("ug", ug)):
+        # The spec's status-query API, actually CALLED by the PhD:
+        # live agent state (websearch/reading/... or coding/thinking/
+        # ...) is combined with the log-based assessment. A worker
+        # that reports 'stopped' while tasks are active is abnormal.
+        try:
+            live = worker.api_status()
+        except Exception:  # noqa: BLE001
+            live = {"agent": worker_name, "status": "unknown"}
         try:
             assess = phd.assess_worker(worker_name)
         except Exception:  # noqa: BLE001
             continue
+        assess["live_status"] = live.get("status", "unknown")
+        if (live.get("status") == "stopped"
+                and int(assess.get("active_tasks", 0)) > 0):
+            assess["recommendation"] = "stop"
+            assess["reason"] = (
+                "ABNORMAL: worker reports status 'stopped' while "
+                f"{assess.get('active_tasks')} task(s) remain active"
+            )
         rec = assess.get("recommendation", "continue")
         reason = assess.get("reason", "")
         last_subj = assess.get("last_subject", "")
@@ -555,12 +571,13 @@ def _phd_review_workers(phd: PhDStudent, ms: MasterStudent, ug: Undergraduate) -
         voided = assess.get("voided_tasks", 0)
         # Persist to doc_memo so the PhD's per-run memory shows the
         # active review's recommendation.
+        live_s = assess.get("live_status", "unknown")
         phd.append_doc_memo(
             user_request="active review",
             method="(supervision)",
             stage="review",
-            ug_summary=(f"rec={rec}; reason={reason}; last='{last_subj}'" if worker_name == "ug" else ""),
-            ms_summary=(f"rec={rec}; reason={reason}; last='{last_subj}'" if worker_name == "ms" else ""),
+            ug_summary=(f"status={live_s}; rec={rec}; reason={reason}; last='{last_subj}'" if worker_name == "ug" else ""),
+            ms_summary=(f"status={live_s}; rec={rec}; reason={reason}; last='{last_subj}'" if worker_name == "ms" else ""),
             interaction_ug=(
                 f"active review: rec={rec}; active={active}; done={done}; voided={voided}"
                 if worker_name == "ug" else ""
