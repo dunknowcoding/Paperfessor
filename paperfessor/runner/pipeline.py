@@ -1014,8 +1014,13 @@ def _model_contract(gpu: bool) -> str:
     if gpu:
         compute_rules = (
             "- imports: numpy, scikit-learn, and OPTIONALLY torch with CUDA "
-            "for acceleration (a CUDA device is available); the code MUST "
-            "still run correctly when torch.cuda.is_available() is False\n"
+            "(a CUDA device is available and the workload is heavy). Use "
+            "the GPU ONLY for the genuinely heavy stages (large matrix "
+            "products, batched FFTs, training over full windows); light "
+            "post-processing (thresholding, score aggregation, lookups) "
+            "stays on CPU. Vectorization and batching are encouraged for "
+            "heavy stages regardless of device. The code MUST still run "
+            "correctly when torch.cuda.is_available() is False\n"
             "- no tensorflow, no pip installs\n"
             "- fit+score must finish within 120 seconds for n=20000, d=38\n"
         )
@@ -1103,11 +1108,35 @@ def _phase_code(
         save_results,
     )
 
-    # GPU policy: the proposed model may use CUDA when available
-    # (faster experiments); baselines stay on CPU scikit-learn. Fair,
-    # because detection quality — not runtime — is compared, and the
-    # paper's Protocol states each method's hardware.
-    gpu_ok = gpu_available()
+    # Acceleration policy: GPU (or any heavyweight acceleration) is
+    # for LONG-RUNNING, HEAVY workloads only — never for light tasks
+    # like thresholding or table assembly. The workload is measured
+    # from the actual dataset manifests; CUDA is offered to the UG
+    # only when hardware exists AND the data is heavy enough to
+    # justify it. Baselines stay on CPU scikit-learn either way
+    # (quality, not runtime, is compared; the Protocol records
+    # per-method hardware).
+    experiment_datasets_early = _datasets_for_direction(direction)
+    workload_cells = 0
+    from paperfessor.research import datasets as _ds_probe
+    for _name in experiment_datasets_early:
+        try:
+            _info = _ds_probe.fetch(_name, ug.workspace)
+            import json as _json
+            _m = _json.loads((_info.path / "manifest.json").read_text(encoding="utf-8"))
+            workload_cells += (
+                (int(_m.get("n_train", 0)) + int(_m.get("n_test", 0)))
+                * max(1, int(_m.get("n_features", 1)))
+            )
+        except Exception:  # noqa: BLE001
+            continue
+    _HEAVY_WORKLOAD_CELLS = 5_000_000
+    gpu_ok = gpu_available() and workload_cells >= _HEAVY_WORKLOAD_CELLS
+    if gpu_available() and not gpu_ok:
+        logger.info(
+            "GPU present but workload light (%s cells < %s); staying on CPU",
+            workload_cells, _HEAVY_WORKLOAD_CELLS,
+        )
 
     experiment_datasets = _datasets_for_direction(direction)
     if not experiment_datasets:
