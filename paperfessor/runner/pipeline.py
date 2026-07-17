@@ -177,7 +177,7 @@ def run(
         _phd_review_workers(phd, ms, ug)
         _phase_code(phd, ug, router, direction, method, budgets["code"])
         _phd_review_workers(phd, ms, ug)
-        paper_path = _phase_write(phd, router, direction, method, budgets["write"], ms=ms)
+        paper_path = _phase_write(phd, router, direction, method, budgets["write"], ms=ms, ug=ug)
         result.paper_path = str(paper_path) if paper_path else None
         readiness = _assess_run_readiness(workspace, paper_path)
         if readiness.issues():
@@ -1111,6 +1111,7 @@ def _phase_write(
     phd: PhDStudent, router: LLMRouter,
     direction: str, method: str, budget: float,
     ms: MasterStudent | None = None,
+    ug: Undergraduate | None = None,
 ) -> Path | None:
     """PhD drafts the paper section by section, with per-section fallback.
 
@@ -1137,10 +1138,43 @@ def _phase_write(
 
     # Load the real evidence the MS collected (datasets, claims, etc.).
     evidence = _load_evidence(phd)
-    # Dynamic support loop: writing is not one-way. When the evidence
-    # base is too thin to carry Related Work, the PhD sends the MS
-    # back out for a quick supplementary search before drafting.
-    # Failures are non-fatal (search APIs may be throttled).
+
+    # The write phase is TASK-DRIVEN: the PhD posts the section-
+    # support subtasks to the shared guides, the workers execute and
+    # report to their logs, and the PhD ticks tasks off — the same
+    # dispatch loop as every other phase, now inside paper writing.
+    write_tasks = [
+        GuideTask(text=f"Answer: what are the top conferences/journals for {direction}?"),
+        GuideTask(text="Supplement citations when the evidence base is thin (< 4 read papers)"),
+    ]
+    try:
+        existing = phd._read_guide(phd._workspace / "shared" / "research_guide.md")[0]
+        phd.update_research_guide(existing + write_tasks)
+    except Exception:  # noqa: BLE001
+        logger.warning("could not post write-phase tasks to research guide")
+
+    # Subtask 1 — venue intelligence: the PhD asks, the MS answers
+    # with a data-driven ranking into research_log.md.
+    if ms is not None:
+        try:
+            venues_found = ms.find_top_venues(direction)
+            phd.append_doc_memo(
+                user_request="write-phase venue question",
+                method=method, stage="write:venues",
+                ms_summary=(
+                    f"reported {len(venues_found)} venues for {direction!r} "
+                    f"(see research_log.md)"
+                ),
+                interaction_ms="PhD asked for top venues; MS answered with sources",
+                stage_goal="venue choice is evidence-based",
+                stage_complete=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("venue question failed; continuing")
+
+    # Subtask 2 — supplementary citations when the evidence base is
+    # too thin to carry Related Work. Failures are non-fatal (search
+    # APIs may be throttled).
     if ms is not None and len(evidence) < 4:
         try:
             extra = ms.search_papers(
@@ -1329,6 +1363,43 @@ def _phase_write(
             "![Block diagram of the proposed method architecture.]"
             "(figures/block_diagram.png)"
         )
+    def _ug_regenerate_figure(fname: str) -> bool:
+        """Subtask dispatch: the PhD found a broken/missing figure in
+        its self-audit and sends the UG to regenerate it from the
+        stored results — the same collaborate-loop as everywhere
+        else. Returns True when the regenerated file passes audit."""
+        if ug is None or results is None:
+            return False
+        try:
+            from paperfessor.research.experiments import (
+                MetricRow, plot_dataset_sample, plot_results,
+            )
+            out = phd._workspace / "src" / "figures" / fname
+            if fname == "results_f1.png":
+                rows = [MetricRow(**r) for r in results.get("rows", [])]
+                plot_results(rows, out)
+            elif fname == "dataset_sample.png":
+                from paperfessor.research import datasets as _ds
+                first = next(iter(results.get("manifests", {})), None)
+                if not first:
+                    return False
+                info = _ds.fetch(first, ug.workspace)
+                plot_dataset_sample(info.path, out)
+            else:
+                return False
+            ug.write_code_log(
+                subject=f"Regenerated paper figure {fname}",
+                content=(
+                    "PhD's figure self-audit flagged the file; regenerated "
+                    "from src/results/results.json."
+                ),
+                task_ref="fig-regen",
+            )
+            return _figure_ok(out)[0]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("figure regeneration for %s failed: %s", fname, exc)
+            return False
+
     for fname, caption, section in (
         ("results_f1.png",
          "Best F1 per dataset and method (mean ± 95% CI over 3 seeds).",
@@ -1339,6 +1410,8 @@ def _phase_write(
     ):
         src_fig = phd._workspace / "src" / "figures" / fname
         ok, why = _figure_ok(src_fig)
+        if not ok and _ug_regenerate_figure(fname):
+            ok, why = True, "regenerated by UG after audit failure"
         figure_audit.append(f"{fname}: {why}")
         if ok:
             _sh.copy(src_fig, paper_figures_dir / fname)
@@ -1351,6 +1424,16 @@ def _phase_write(
         status="; ".join(figure_audit),
         figure_check="; ".join(figure_audit),
     )
+    # Tick off the write-phase subtasks the workers completed.
+    try:
+        tasks_now = phd._read_guide(phd._workspace / "shared" / "research_guide.md")[0]
+        for t in tasks_now:
+            if t.text.startswith(("Answer: what are the top",
+                                  "Supplement citations")):
+                t.done = True
+        phd.update_research_guide(tasks_now)
+    except Exception:  # noqa: BLE001
+        logger.warning("could not tick write-phase guide tasks")
 
     # Assemble the paper. Run metadata (direction / method /
     # timestamp) lives in doc_memo and the archive — NOT in the

@@ -187,6 +187,76 @@ class MasterStudent(_WorkspaceAgent):
             tasks.append(GuideTask(text=text, done=(mark == "x"), voided=(mark == "~")))
         return tasks
 
+    # ---- Venue intelligence ---------------------------------------------
+
+    def find_top_venues(self, field: str, *, limit: int = 10) -> list[dict]:
+        """Answer the PhD's question: "what are the top conferences /
+        journals in <field>?" — with a data-driven, citable ranking.
+
+        Two sources are combined and both are named in the report:
+        1. OpenAlex: venues publishing the most work matching the
+           field (live aggregation, reliable and reproducible);
+        2. the curated top-tier catalogue in ``venue_index`` (the
+           community's consensus A* list), used to tag which of the
+           discovered venues are recognised top-tier.
+
+        The answer is written to shared/research_log.md so the PhD
+        can read it like any other report. Failures return whatever
+        could be gathered (possibly only the curated list).
+        """
+        self.set_status(MasterStatus.WEBSEARCH)
+        from paperfessor.research.sources import openalex as _oa
+        from paperfessor.research.sources.venue_index import venues_for_direction
+
+        discovered: list[dict] = []
+        source_note = ""
+        try:
+            discovered = _oa.top_sources_for_query(field, limit=limit,
+                                                   year_min=2020)
+            source_note = "OpenAlex works aggregation (2020-present)"
+        except Exception as exc:  # noqa: BLE001
+            source_note = f"OpenAlex unavailable ({str(exc)[:80]}); curated list only"
+        from paperfessor.research.sources.venue_index import venue_label
+        curated_ids = set(venues_for_direction(field))
+        curated_labels = sorted(venue_label(sid) for sid in curated_ids)
+        for row in discovered:
+            row["top_tier"] = (
+                row.get("source_id") in {c.rsplit("/", 1)[-1] for c in curated_ids}
+                or any(
+                    lbl.lower() in row["name"].lower()
+                    for lbl in curated_labels
+                )
+            )
+        lines = [
+            f"Question from the PhD: what are the top conferences/journals for **{field}**?",
+            "",
+            f"Data source: {source_note}; cross-checked against the curated top-tier catalogue.",
+            "",
+            "| Rank | Venue | Matching works | Recognised top-tier |",
+            "|---|---|---|---|",
+        ]
+        for i, row in enumerate(discovered, 1):
+            lines.append(
+                f"| {i} | {row['name']} | {row['works']} "
+                f"| {'yes' if row.get('top_tier') else '-'} |"
+            )
+        if not discovered:
+            lines.append("| - | (no live data; see curated list below) | - | - |")
+        if curated_names:
+            lines.append("")
+            lines.append(
+                "Curated top-tier venues for this direction: "
+                + ", ".join(sorted(n for n in curated_names if n))
+            )
+        self.set_status(MasterStatus.REPORTING)
+        self.write_research_log(
+            subject=f"Top venues for {field[:60]}",
+            content="\n".join(lines),
+            task_ref="venue-question",
+        )
+        self.set_status(MasterStatus.IDLE)
+        return discovered
+
     # ---- Log write -----------------------------------------------------
 
     def write_research_log(

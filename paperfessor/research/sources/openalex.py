@@ -125,6 +125,51 @@ def search(
     return [_row_to_paper(row) for row in (body.get("results") or [])]
 
 
+def top_sources_for_query(
+    query: str, *, limit: int = 10, year_min: int | None = None,
+) -> list[dict]:
+    """Data-driven top-venue discovery for a research field.
+
+    Groups the works matching ``query`` by their source (journal /
+    conference proceedings) and returns the venues that publish the
+    most matching work — a reliable, citable ranking straight from
+    OpenAlex rather than a hard-coded list.
+
+    Returns rows: ``{"source_id", "name", "works": int}``, most
+    prolific first.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    params: list[tuple[str, str]] = [
+        ("search", q),
+        ("group_by", "primary_location.source.id"),
+        ("per_page", "200"),
+    ]
+    if year_min:
+        params.append(("filter", f"from_publication_date:{year_min}-01-01"))
+    contact = os.environ.get("PAPERFESSOR_CONTACT_EMAIL", "").strip()
+    if contact and "@" in contact:
+        params.append(("mailto", contact))
+    qs = "&".join(f"{k}={quote(str(v), safe=':,-')}" for k, v in params)
+    body = _http_get(f"{OA_BASE}/works?{qs}")
+    out: list[dict] = []
+    for row in (body.get("group_by") or []):
+        key = str(row.get("key") or "")
+        name = str(row.get("key_display_name") or "").strip()
+        count = int(row.get("count") or 0)
+        if not name or name.lower() == "unknown" or not key:
+            continue
+        out.append({
+            "source_id": key.rsplit("/", 1)[-1],
+            "name": name,
+            "works": count,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def fetch_by_arxiv_id(arxiv_id: str) -> OAPaper:
     """Look up a paper by (version-stripped) arXiv id.
 
