@@ -114,6 +114,14 @@ class Settings(BaseSettings):
     # --- Output ------------------------------------------------------------
     output_root: Path = Field(default=Path("./output"))
 
+    # --- UG sandbox permissions (user-controlled) --------------------------
+    # The UG's generated experiment code always runs in a subprocess
+    # harness; these settings control what that sandbox permits.
+    # Shell/conda/venv/git remain unavailable to the UG by design.
+    ug_allow_gpu: bool = True            # permit torch+CUDA when justified
+    ug_sandbox_timeout_seconds: int = Field(default=240, ge=30, le=3600)
+    ug_extra_allowed_imports: str = ""   # comma-separated, e.g. "numba,jax"
+
     # --- Coordination (full user control via CLI --flags / GUI) -----------
     # Bounds for every agent loop. Defaults favor quality on cloud
     # APIs; lower them for cheaper/faster runs.

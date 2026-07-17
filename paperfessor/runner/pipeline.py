@@ -1112,13 +1112,24 @@ def _extract_python_code(text: str) -> str | None:
     return candidate if has_model else None
 
 
-def _validate_model_code(code: str, *, gpu_allowed: bool = False) -> str | None:
-    """Static safety check. Returns an error message or None."""
+def _validate_model_code(code: str, *, gpu_allowed: bool = False,
+                         extra_allowed: tuple[str, ...] = ()) -> str | None:
+    """Static safety check. Returns an error message or None.
+
+    ``extra_allowed`` lets the user whitelist additional import names
+    (settings.ug_extra_allowed_imports); the hard sandbox rules —
+    no network, no file I/O, no shell — are not whitelistable.
+    """
     banned = ["tensorflow", "requests", "urllib", "subprocess",
               "socket", "os.system", "shutil", "open("]
     if not gpu_allowed:
         banned.append("torch")
+    hard = {"requests", "urllib", "subprocess", "socket", "os.system",
+            "shutil", "open("}
+    allowed = {a.strip() for a in extra_allowed if a.strip()}
     for b in banned:
+        if b in allowed and b not in hard:
+            continue
         if b in code:
             return f"banned construct in model code: {b!r}"
     return None
@@ -1173,7 +1184,10 @@ def _phase_code(
             continue
     _HEAVY_WORKLOAD_CELLS = 5_000_000
     speed_topic = _speed_topic(direction)
-    if speed_topic:
+    user_allows_gpu = bool(getattr(ug._settings, "ug_allow_gpu", True))
+    if not user_allows_gpu:
+        gpu_ok = False
+    elif speed_topic:
         # Speed-optimization topics: NO hardware/methodology limits —
         # acceleration is the contribution, and wall-clock is a
         # first-class metric (identical machine for every method).
@@ -1292,15 +1306,23 @@ def _phase_code(
                         "defining `class Model`")
             rounds.append(f"round {attempt + 1}: no valid code block")
             continue
-        err = _validate_model_code(code, gpu_allowed=gpu_ok)
+        extra_ok = tuple(
+            str(getattr(ug._settings, "ug_extra_allowed_imports", "") or ""
+                ).split(","))
+        err = _validate_model_code(code, gpu_allowed=gpu_ok,
+                                   extra_allowed=extra_ok)
         if err:
             feedback = err
             rounds.append(f"round {attempt + 1}: static check: {err}")
             continue
         model_path.write_text(code, encoding="utf-8")
         try:
+            smoke_timeout = min(
+                120.0,
+                float(getattr(ug._settings, "ug_sandbox_timeout_seconds", 240)),
+            )
             scores = run_llm_model(model_path, smoke_train, smoke_test,
-                                   seed=0, timeout=90.0)
+                                   seed=0, timeout=smoke_timeout)
         except (ModelRunError, Exception) as exc:  # noqa: BLE001
             feedback = str(exc)[:1500]
             first_line = feedback.strip().splitlines()[-1][:160] if feedback.strip() else "?"
