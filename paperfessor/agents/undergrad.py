@@ -178,9 +178,16 @@ class Undergraduate(_WorkspaceAgent):
     # All paths the toolbelt touches MUST resolve inside workspace/src.
 
     def _src_path(self, rel: str) -> Path:
-        """Resolve ``rel`` inside workspace/src; refuse escapes."""
+        """Resolve ``rel`` inside workspace/src; refuse escapes.
+
+        Backslashes are normalized to '/' first so a Windows-style
+        path like ``..\\..\\x`` is caught as an escape on POSIX too
+        (where '\\' is a legal filename char and would otherwise slip
+        through the guard). Absolute paths are rejected as escapes.
+        """
+        rel_norm = str(rel).replace("\\", "/")
         base = (self._workspace / "src").resolve()
-        p = (base / rel).resolve()
+        p = (base / rel_norm).resolve()
         if base not in p.parents and p != base:
             raise PermissionError(f"path escapes workspace/src: {rel!r}")
         return p
