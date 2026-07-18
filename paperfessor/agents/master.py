@@ -413,6 +413,37 @@ class MasterStudent(_WorkspaceAgent):
                 fields_of_study=(),
             )
 
+        # 2b) Crossref: broad cross-disciplinary discovery (medicine,
+        # economics, social science, humanities) beyond arXiv/OpenAlex.
+        # Adds only NEW titles; deduped against what we already have.
+        try:
+            from paperfessor.research.sources import crossref
+            cr_hits = crossref.search(topic, limit=max_venue,
+                                      year_min=year_min)
+        except Exception:  # noqa: BLE001
+            cr_hits = []
+        for cr in cr_hits:
+            key = cr.doi or cr.title
+            norm = re.sub(r"\W+", "", cr.title.lower())[:80]
+            if key in seen or any(
+                re.sub(r"\W+", "", r.title.lower())[:80] == norm
+                for r in seen.values()
+            ):
+                continue
+            # Topic-token pre-filter (title only; Crossref rarely has abstracts).
+            if topic_tokens and not any(
+                tok in cr.title.lower() for tok in topic_tokens
+            ):
+                continue
+            seen[key] = PaperRecord(
+                arxiv_id=None, doi=cr.doi, title=cr.title,
+                authors=cr.authors, year=cr.year,
+                venue=cr.venue or "(journal)", venue_source="crossref",
+                source_url=cr.landing_page_url or "",
+                pdf_url=None, pdf_path=None, abstract=cr.abstract,
+                citation_count=cr.cited_by_count, fields_of_study=(),
+            )
+
         # 3) Optional: enrich arXiv records with OpenAlex metadata.
         for key, rec in list(seen.items()):
             if rec.venue_source != "arxiv" or not rec.arxiv_id:
