@@ -604,20 +604,43 @@ def _phase_plan(
     """
     phd.set_status(PhDStatus.PLANNING)
     archived = phd.list_archived()
+    # TOPIC ISOLATION: partition the archive into SAME-topic attempts
+    # (authoritative prior art — skip/improve these) and OTHER-topic
+    # attempts (informational only). Mixing them would let a method
+    # from an unrelated topic masquerade as this topic's prior art.
+    _dir_key = _slug_prefix(direction)
+
+    def _same_topic(a: dict) -> bool:
+        rd = _slug_prefix(str(a.get("research_direction", "")))
+        return bool(_dir_key) and bool(rd) and (
+            _dir_key.startswith(rd) or rd.startswith(_dir_key)
+        )
+
+    same_topic = [a for a in archived if _same_topic(a)]
+    other_topic = [a for a in archived if not _same_topic(a)]
     archived_summary = (
-        "\n".join(f"- {a.get('method', '?')} (success={a.get('success', '?')}, reason={a.get('reason', '-')})"
-                  for a in archived) or "(none)"
+        "\n".join(
+            f"- {a.get('method', '?')} (success={a.get('success', '?')}, "
+            f"reason={a.get('reason', '-')})"
+            for a in same_topic)
+        or "(no prior attempt on THIS topic)"
+    )
+    # Cross-topic learnings: useful for inspiration, but clearly
+    # separated so they are never treated as this topic's prior art.
+    other_summary = (
+        "\n".join(
+            f"- [{a.get('research_direction', '?')}] {a.get('method', '?')} "
+            f"(success={a.get('success', '?')})"
+            for a in other_topic[-5:])
+        or "(none)"
     )
     # Self-evolution cuts both ways: the archive records what WORKED,
     # not only what failed. The planner must exploit proven strengths
     # (e.g. a method family that beat the baselines) while still
     # producing something new.
-    _dir_key = _slug_prefix(direction)
     wins = [
-        a for a in archived
+        a for a in same_topic
         if str(a.get("success")).lower() == "true"
-        and (not _dir_key
-             or _dir_key in str(a.get("research_direction", "")).lower())
     ]
     wins_summary = (
         "\n".join(f"- {a.get('method', '?')}" for a in wins[-3:])
@@ -688,8 +711,11 @@ def _phase_plan(
             f"Existing approaches found by the MS's quick pre-survey "
             f"(your method must be meaningfully DIFFERENT from all of these, "
             f"not a rebrand):\n{existing_summary}\n\n"
-            f"Prior attempts in the archive (skip methods that already succeeded or were vetoed):\n"
-            f"{archived_summary}\n"
+            f"Prior attempts ON THIS TOPIC (skip methods that already succeeded or were vetoed):\n"
+            f"{archived_summary}\n\n"
+            f"Attempts on OTHER, unrelated topics (for cross-domain "
+            f"inspiration ONLY — these are NOT prior art for this topic and "
+            f"must not be treated as such):\n{other_summary}\n"
             f"{wins_note}\n"
             f"Propose ONE concrete NOVEL method to attempt. When the "
             f"archive shows a technique that proved competitive, prefer "
@@ -2131,6 +2157,7 @@ def _phase_write(
             venue_id=venue.get("venue_id"),
             venue_name=venue.get("venue_name"),
             page_limit=venue.get("page_limit", 9),
+            appendix_allowed=bool(venue.get("appendix_allowed", True)),
         )
         templates_dir = phd._workspace / "paper" / "templates"
         # The figure is copied into paper/body/figures/ (see
@@ -2166,8 +2193,11 @@ def _phase_write(
                 ),
             )
             # Expand the LONG-FORM sections (never abstract/conclusion).
-            expandable = ("1. Introduction", "2. Related Work", "3. Method",
-                          "5. Analysis and Discussion")
+            # Experiments-over-theory: grow the empirical sections to
+            # fill the page budget, NOT the Method (theory) section —
+            # excess theory belongs in the appendix, not the body.
+            expandable = ("4. Experimental Setup", "5. Analysis and Discussion",
+                          "1. Introduction", "2. Related Work")
             new_sections = []
             for title, body in sections:
                 if title not in expandable:
@@ -2211,6 +2241,7 @@ def _phase_write(
                 venue_id=venue.get("venue_id"),
                 venue_name=venue.get("venue_name"),
                 page_limit=venue.get("page_limit", 9),
+                appendix_allowed=bool(venue.get("appendix_allowed", True)),
             )
             pdf_path = build_pdf(tex_path, texinputs=[templates_dir])
             pdf_built = pdf_path.suffix.lower() == ".pdf" and pdf_path.is_file()
@@ -2277,6 +2308,7 @@ def _phase_write(
                     venue_id=venue.get("venue_id"),
                     venue_name=venue.get("venue_name"),
                     page_limit=venue.get("page_limit", 9),
+                    appendix_allowed=bool(venue.get("appendix_allowed", True)),
                 )
                 pdf_path = build_pdf(tex_path, texinputs=[templates_dir])
                 pdf_built = pdf_path.suffix.lower() == ".pdf" and pdf_path.is_file()
@@ -3257,15 +3289,19 @@ def _method_prompt(direction: str, method: str, evidence: list[Evidence],
             f"implemented and claim no capability beyond it. "
         )
     return (
-        f"Write the Method section (2-3 paragraphs) for {method!r}. "
+        f"Write the Method section (2-3 paragraphs, ~500-650 words MAX) "
+        f"for {method!r}. "
         f"Describe the method concretely; include one figure described in "
         f"words. {fidelity}"
         f"Do NOT list evaluation datasets here (Section 4 "
         f"covers them); do NOT promise experiments on datasets that were "
-        f"not run. No fabricated numbers. BALANCE RULE: the main body "
-        f"carries the core formulation and intuition only (~1-1.5 pages "
-        f"of theory); extended derivations, lemmas, and step-by-step "
-        f"proofs go into a trailing block titled '## Appendix A: Extended "
+        f"not run. No fabricated numbers. BALANCE RULE (this is an "
+        f"EMPIRICAL paper — experiments and analysis must dominate the "
+        f"page budget, not theory): the main body carries ONLY the core "
+        f"formulation and the intuition a reader needs to follow the "
+        f"experiments (~1 page). Push ALL extended derivations, lemmas, "
+        f"proofs, complexity analysis, and secondary design variants into "
+        f"a trailing block titled '## Appendix A: Extended "
         f"Derivations' at the END of your reply — it is routed out of "
         f"the main pages automatically.\n\n{headline}"
     )

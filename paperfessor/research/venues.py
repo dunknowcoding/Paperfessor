@@ -51,6 +51,12 @@ class VenueTemplate:
     template_url: str | None
     template_filename: str # local file name, e.g. "neurips_2026.sty"
     fallback_class: str    # class to use if download fails
+    # Whether the venue permits an appendix INSIDE the manuscript.
+    # Almost all ML conferences allow unlimited appendix after the
+    # references; venues that require a separate supplementary file
+    # set this False, and the writer routes overflow to
+    # supplementary.md instead of \appendix.
+    appendix_allowed: bool = True
 
 
 # Curated mapping. Each entry pairs the OpenAlex id with the

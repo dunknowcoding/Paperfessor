@@ -855,6 +855,7 @@ class PhDStudent(_WorkspaceAgent):
             "class_source": class_source,
             "template_path": str(downloaded) if downloaded else None,
             "page_limit": template.page_limit,
+            "appendix_allowed": template.appendix_allowed,
             "llm_decided": bool(override_match is None),
         }
         self._last_venue_choice = result
