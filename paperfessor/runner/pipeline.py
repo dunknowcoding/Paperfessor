@@ -2349,7 +2349,15 @@ def _phase_write(
     reference_lines: list[str] = []
     seen: set[str] = set()
     ref_count = 0
-    for ev in evidence:
+    # PRESTIGE ORDER: the best papers cite predominantly high-impact,
+    # top-venue work. Order the reference list by citation count (a
+    # robust prestige proxy) so leading venues surface first, and so a
+    # thin tail can be topped up with more top-tier work.
+    evidence_ranked = sorted(
+        evidence, key=lambda e: getattr(e.paper, "citation_count", 0) or 0,
+        reverse=True,
+    )
+    for ev in evidence_ranked:
         cite = ev.paper.short_cite()
         if cite in seen:
             continue
@@ -2578,6 +2586,25 @@ def _phase_write(
             stage_goal="PhD picks the right target venue",
             lessons="- venue pick raised; using acmart fallback"
         )
+    # Venue-label gate: the venue catalogue is CS-centric, so a non-CS
+    # topic would get a misleading "[Target venue: <CS venue>]" label
+    # (an economics paper labelled ICRA/KDD). Show the label ONLY when
+    # the user explicitly set a target venue, or the direction is
+    # confidently in a field the catalogue covers. The acmart 2-column
+    # class is still fine as a neutral format; only the CLAIM is gated.
+    _user_venue = getattr(phd._settings, "target_venue", None)
+    _cs_topic = bool(_datasets_for_direction(direction)) or any(
+        k in direction.lower() for k in (
+            "machine learning", "deep learning", "neural", "computer vision",
+            "natural language", "reinforcement", "graph neural", "algorithm",
+            "anomaly", "time series", "classification", "segmentation",
+        )
+    )
+    if _user_venue:
+        venue["venue_name"] = _user_venue
+    elif not _cs_topic:
+        venue["venue_name"] = ""  # neutral: no false venue claim
+
     # 2. Build the .tex + .pdf with the venue's class.
     try:
         from paperfessor.research.latex import build_pdf, write_tex
