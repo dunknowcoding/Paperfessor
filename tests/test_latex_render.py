@@ -85,3 +85,16 @@ def test_currency_dollar_not_treated_as_math():
     # Real inline math is still preserved, even next to currency.
     out2 = _md_inline_to_tex(f"a {d}5 floor and a rate {d}x{d} variable")
     assert r"\$5" in out2 and f"{d}x{d}" in out2
+
+
+def test_stats_notation_escaped():
+    # p < 0.05 / age > 65 in prose render as wrong glyphs in text mode
+    # unless escaped (medical / social / economics papers, 2026-07-18).
+    from paperfessor.research.latex import _md_inline_to_tex
+    out = _md_inline_to_tex("significant (p < 0.05) but weak for age > 65")
+    assert r"\textless{}" in out and r"\textgreater{}" in out
+    assert "<" not in out and ">" not in out
+    # Inequalities inside real math are untouched.
+    d = chr(36)
+    out2 = _md_inline_to_tex(f"the bound {d}x < y{d} holds")
+    assert f"{d}x < y{d}" in out2

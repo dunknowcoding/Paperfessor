@@ -73,3 +73,6 @@ _trace*.log
 dist/
 build/
 output/
+
+# Isolated test workspaces (dev only)
+/_wstest/

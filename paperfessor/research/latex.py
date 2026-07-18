@@ -230,6 +230,13 @@ def _escape(s: str) -> str:
             out.append(r"\textasciitilde{}")
         elif c == "^":
             out.append(r"\textasciicircum{}")
+        elif c == "<":
+            # Text-mode ``<`` renders as an inverted exclamation in the
+            # default fonts; statistical notation (``p < 0.05``) is
+            # ubiquitous in medical/social/economics papers.
+            out.append(r"\textless{}")
+        elif c == ">":
+            out.append(r"\textgreater{}")
         elif c == "\\":
             out.append(r"\textbackslash{}")
         else:
