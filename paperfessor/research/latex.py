@@ -460,10 +460,11 @@ def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
                     [c.strip() for c in r.strip().strip("|").split("|")]
                     for r in tbl_lines[2:]
                 ]
-                col_spec = "l" * len(header)
+                # First column left-aligned (labels), numeric columns
+                # right-aligned — the standard for results tables.
+                col_spec = "l" + "r" * (len(header) - 1) if len(header) > 1 else "l"
                 # Wide tables (>= 5 columns or long cells) span both
-                # columns (`table*`) and are shrunk to the text width
-                # so they can NEVER cross the page margin.
+                # columns (`table*`); narrow ones stay single-column.
                 est_width = max(
                     sum(len(c) for c in header),
                     max((sum(len(c) for c in r) for r in rows), default=0),
@@ -474,7 +475,12 @@ def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
                 body_lines.append(rf"\begin{{{env}}}[t]")
                 body_lines.append(r"  \centering")
                 body_lines.append(r"  \small")
-                body_lines.append(rf"  \resizebox{{{box}}}{{!}}{{%")
+                # Only SHRINK when the natural table is wider than the
+                # target; never STRETCH a narrow table to full width
+                # (that produced the sparse, over-wide dataset table).
+                body_lines.append(
+                    rf"  \resizebox{{\ifdim\width>{box} {box}\else\width\fi}}{{!}}{{%"
+                )
                 # booktabs rules (\toprule/\midrule/\bottomrule) —
                 # the professional table style every top venue uses;
                 # no vertical rules, generous rule weights.
@@ -536,6 +542,18 @@ def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
                 list_kind = "ul"
             list_buf.append(r"\item " + _md_inline_to_tex(m_ul.group(1)))
             continue
+        # Bare DISPLAY EQUATION: the LLM often writes a standalone
+        # math line (containing \max, \frac, \sum, \;, _{...}, \in,
+        # \langle, ...) WITHOUT $...$ delimiters. Escaping it mangles
+        # the math (observed: "s_{i,b} = 1 - max" garbled). Detect a
+        # line that is mostly math and wrap it in display math.
+        if _is_display_equation(line):
+            flush_list()
+            body_lines.append(r"\[")
+            body_lines.append(line.rstrip().rstrip(","))
+            body_lines.append(r"\]")
+            body_lines.append("")
+            continue
         # Plain paragraph
         flush_list()
         body_lines.append(_md_inline_to_tex(line))
@@ -546,6 +564,33 @@ def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
         body_lines.extend(code_buf)
         body_lines.append(r"\end{verbatim}")
     return title, "\n".join(body_lines)
+
+
+_MATH_COMMANDS = (
+    r"\max", r"\min", r"\frac", r"\sum", r"\prod", r"\int", r"\sqrt",
+    r"\langle", r"\rangle", r"\in", r"\mathbb", r"\mathcal", r"\alpha",
+    r"\beta", r"\sigma", r"\theta", r"\lambda", r"\|", r"\;", r"\,",
+    r"\cdot", r"\times", r"\leq", r"\geq", r"\approx",
+)
+
+
+def _is_display_equation(line: str) -> bool:
+    """True when ``line`` is a bare display equation (LaTeX math with
+    no surrounding $...$ and essentially no prose). Such lines must be
+    wrapped in \\[...\\] rather than escaped as text."""
+    s = line.strip()
+    if not s or "$" in s:
+        return False
+    # Needs at least two math cues, or an assignment plus one cue.
+    cues = sum(1 for c in _MATH_COMMANDS if c in s)
+    has_sub = bool(re.search(r"_\{|\^\{|_[a-zA-Z0-9]|\}\s*=", s))
+    if cues < 1 and not has_sub:
+        return False
+    if cues < 2 and not re.search(r"=|\\;=\\;", s):
+        return False
+    # Reject lines that are mostly prose (many multi-letter words).
+    words = re.findall(r"\b[a-zA-Z]{4,}\b", re.sub(r"\\[a-zA-Z]+", "", s))
+    return len(words) <= 3
 
 
 def md_extract_refs(md: str) -> list[str]:

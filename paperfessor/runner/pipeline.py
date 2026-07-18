@@ -2693,6 +2693,15 @@ def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
     # by the LaTeX converter and would print literally.
     if re.search(r"\[\^\w+\]", paper_md):
         defects.append("markdown footnote marker [^...] would print literally in the PDF")
+    # Safeguard 4b — Unicode mathematical-alphanumeric characters
+    # (U+1D400..U+1D7FF) never render in standard LaTeX fonts; the LLM
+    # sometimes pastes "styled" math. Use plain ASCII in $...$ math.
+    if any(0x1D400 <= ord(c) <= 0x1D7FF for c in paper_md):
+        bad = sorted({c for c in paper_md if 0x1D400 <= ord(c) <= 0x1D7FF})
+        defects.append(
+            f"Unicode math characters {bad[:5]} will not render — write "
+            f"math in plain ASCII inside $...$ delimiters"
+        )
     # Safeguard 5 — implementation fidelity: when the experiments ran
     # the CPU numpy/scikit-learn variant, Method text claiming
     # deep-learning training procedures contradicts the Protocol.

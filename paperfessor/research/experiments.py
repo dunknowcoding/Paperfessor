@@ -383,31 +383,51 @@ def rows_to_markdown(rows: list[MetricRow], *, include_time: bool = False) -> st
             "| Dataset | Method | F1 | Precision | Recall | AUROC | AUPRC |",
             "|---|---|---|---|---|---|---|",
         ]
-    # Best F1 per dataset gets bolded (published-paper convention).
-    best_f1: dict[str, float] = {}
+    # Published-paper convention: the BEST value in EACH metric per
+    # dataset is bolded (higher is better for F1/Precision/Recall/
+    # AUROC/AUPRC), so the proposed method's superiority shows across
+    # every column it wins — not only F1.
+    best: dict[tuple[str, str], float] = {}
     for r in rows:
-        if not r.error and not np.isnan(r.f1_mean):
-            best_f1[r.dataset] = max(best_f1.get(r.dataset, 0.0), r.f1_mean)
+        if r.error:
+            continue
+        for mkey, val in (
+            ("f1", r.f1_mean), ("precision", r.precision_mean),
+            ("recall", r.recall_mean), ("auroc", r.auroc_mean),
+            ("auprc", r.auprc_mean),
+        ):
+            if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                k = (r.dataset, mkey)
+                best[k] = max(best.get(k, float("-inf")), val)
+
+    def _cell(dataset: str, mkey: str, mean: float, ci: float,
+              multi: bool) -> str:
+        txt = f"{mean:.3f}" + (f" ± {ci:.3f}" if multi else "")
+        # Bold when this value equals the column-best for the dataset
+        # (ties are both bolded — standard practice).
+        if abs(best.get((dataset, mkey), float("-inf")) - mean) < 1e-9:
+            txt = f"**{txt}**"
+        return txt
+
     for r in rows:
         if r.error:
             tail = " - |" if include_time else ""
             lines.append(f"| {r.dataset} | {r.method} | failed | - | - | - | - |{tail}")
             continue
-        # Consistency contract with the Protocol text: any method run
-        # with multiple seeds prints its ± even when it is 0.000 —
-        # otherwise the table looks single-seed against the k = 3
-        # claim (flagged by the self-inspection reviewer in T14).
+        # Any method run with multiple seeds prints its ± even at
+        # 0.000, keeping the table consistent with the k = 3 protocol.
         multi = r.n_seeds > 1
-        f1 = f"{r.f1_mean:.3f}" + (f" ± {r.f1_ci:.3f}" if multi else "")
-        if best_f1.get(r.dataset) == r.f1_mean:
-            f1 = f"**{f1}**"
-        roc = f"{r.auroc_mean:.3f}" + (f" ± {r.auroc_ci:.3f}" if multi else "")
+        f1 = _cell(r.dataset, "f1", r.f1_mean, r.f1_ci, multi)
+        prec = _cell(r.dataset, "precision", r.precision_mean, 0.0, False)
+        rec = _cell(r.dataset, "recall", r.recall_mean, 0.0, False)
+        roc = _cell(r.dataset, "auroc", r.auroc_mean, r.auroc_ci, multi)
+        prc = _cell(r.dataset, "auprc", r.auprc_mean, 0.0, False)
         time_cell = (
             f" {r.seconds / max(1, r.n_seeds):.2f} |" if include_time else ""
         )
         lines.append(
-            f"| {r.dataset} | {r.method} | {f1} | {r.precision_mean:.3f} "
-            f"| {r.recall_mean:.3f} | {roc} | {r.auprc_mean:.3f} |{time_cell}"
+            f"| {r.dataset} | {r.method} | {f1} | {prec} "
+            f"| {rec} | {roc} | {prc} |{time_cell}"
         )
     return "\n".join(lines)
 
