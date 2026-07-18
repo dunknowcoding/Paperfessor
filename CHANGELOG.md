@@ -1,10 +1,10 @@
 # Changelog
 
-## 1.0.0 (2026-07-17)
+## 1.0.0 (2026-07-18)
 
 First public release. Paperfessor turns a one-sentence research
 direction into a survey, real experiments, and a venue-formatted PDF —
-with honesty enforced at every step.
+with honesty guards at every step.
 
 ### Highlights
 
@@ -40,6 +40,32 @@ with honesty enforced at every step.
 - **Memory discipline**: shared skill defining how agents write and
   recall memory; memo auto-compaction; permanent archive with
   PDF-only zips.
+- **Durable learning memory** (`doc_learn.md`): a cross-run,
+  PhD-only, category-grouped store (venue requirements, paper style,
+  coordination, method design, …) that is never cleared, consulted in
+  planning and writing, and kept compact by near-duplicate collapsing.
+- **Topic isolation**: the planner separates same-topic prior art from
+  cross-topic inspiration, so changing research topic never confuses
+  old memories.
+- **Research goals & SOTA campaign**: `--goal`
+  (sota / comparison / experiments / review / exploration) decides
+  whether beating the baselines is required; `--campaign` chains
+  attempts — improve a method up to a configurable number of rounds,
+  switch methods, and on exhaustion replan while keeping memory but
+  clearing artifacts and datasets.
+- **Venue-aware writing**: the MS studies how papers for the target
+  venue are organized and written; the PhD picks the theory/experiment
+  balance and routes overflow theory to an appendix (or supplementary
+  materials when the venue forbids appendices).
+- **Configurable permissions & hard folder scope**: the Undergraduate
+  can run local tools and install packages by default (toggleable via
+  CLI / env / GUI); each agent may only write inside its assigned
+  workspace folders, enforced in code.
+
+### Install & CI
+
+- `requirements.txt`, cross-platform CI, and a PyPI Trusted-Publishing
+  release workflow (`.github/workflows/workflow.yml`).
 
 ### Security & privacy
 
