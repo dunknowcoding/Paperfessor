@@ -26,20 +26,29 @@
 
 ## Why Paperfessor?
 
-Most "AI paper writers" hallucinate citations and numbers. **Paperfessor doesn't** —
-it is built so a paper is *earned*, not *invented*:
+Most "AI paper writers" hallucinate citations and numbers. Paperfessor is
+built with **guardrails that make that hard** — a paper should be *earned*,
+not *invented*:
 
-- 📊 **Real experiments, real numbers** — it downloads real public datasets, runs
-  the proposed method and baselines itself (k = 3 seeds, mean ± 95% CI), and puts
-  the *measured* results in the paper. No fabricated metrics, no "TBD" cells.
-- 📚 **Real citations** — every reference is resolved against arXiv / OpenAlex /
-  Semantic Scholar; unverifiable citations are removed.
+- 📊 **Experiments produce the numbers** — it downloads real public datasets, runs
+  the proposed method and baselines itself (k = 3 seeds, mean ± 95% CI), and the
+  table is filled from the *measured* `results.json`, not from the language model.
+- 📚 **Citations are resolved against real indexes** — arXiv / OpenAlex /
+  Semantic Scholar; citations that can't be verified are removed.
 - 🔍 **Self-inspecting** — the PhD agent re-reads the whole paper against the
-  measured results, fixes defects, and re-checks the rendered layout, page by
-  page, until it is clean.
-- 🔒 **Private by design** — your API key lives in the OS keychain; no local paths,
-  filenames, or machine info ever reach the paper.
+  measured results, flags defects (unmeasured numbers, missing references,
+  layout problems), fixes them, and re-checks page by page until clean.
+- 🔒 **Private by design** — your API key lives in the OS keychain; a redaction
+  pass strips local paths, filenames, and machine info from the paper.
 - 🖥️ **Runs on your machine, your key** — cloud LLMs or local Ollama / llama.cpp.
+
+> **A note on honesty.** These guardrails constrain the machinery around the
+> model — real data, verified citations, a measured results table, layout gates.
+> They **cannot guarantee** the prose an LLM writes is accurate or free of
+> subtle errors; that depends on the model you plug in, and no wrapper can make
+> a language model truthful. **Always review the generated paper before any
+> real use** — treat Paperfessor as a fast, well-supervised first-draft
+> assistant, not an oracle.
 
 > **A recent end-to-end run** on *"anomaly detection in multivariate time series"*
 > produced a 10-page KDD-formatted PDF where the proposed method won best-F1 on
@@ -58,10 +67,12 @@ one sentence is enough — and its agent group works the way a small lab does:
 | 📚 **Master's student** | Broad literature search (arXiv + OpenAlex + Scholar), rigorous full-text reading, evidence extraction, venue-requirements investigation | `websearch / reading / analyzing / reporting / idle / stopped` |
 | 💻 **Undergraduate** | Implements the method against a strict contract, downloads and preprocesses real datasets, runs k-seed experiments | `coding / thinking / reporting / idle / stopped` |
 
-Every number in the paper is **measured, never fabricated**: datasets are real
-public downloads (loaders refuse synthetic stand-ins), the proposed method is
-verified by actually running it, and each rendered page passes an automated
-layout inspection before the run is accepted.
+Numbers in the results table come from a **measured** `results.json`, not from
+the language model: datasets are real public downloads (loaders refuse synthetic
+stand-ins), the proposed method is verified by actually running it, and each
+rendered page passes an automated layout inspection before the run is accepted.
+The surrounding prose is still written by an LLM — see the honesty note above and
+**verify it yourself**.
 
 ## How it works
 
@@ -101,6 +112,21 @@ paperfessor run "anomaly detection in multivariate time series"
 That's it — the three agents plan, survey, code, experiment, write, and
 self-inspect, then drop a venue-formatted PDF in `workspace/paper/body/`.
 
+## System requirements
+
+| Component | Requirement | Needed for |
+|---|---|---|
+| **Python** | 3.11 or 3.12 | **Required** — the whole tool |
+| **An LLM key or local model** | one provider (MiniMax / OpenAI / Anthropic / Google) **or** local Ollama / llama.cpp | **Required** — the agents call an LLM |
+| **~1–2 GB disk + network** | for dataset/paper downloads | **Required** at run time |
+| **LaTeX** | TeX Live / MiKTeX / MacTeX with `acmart` | *Recommended* — real PDF; without it, `.docx`/Markdown fallback |
+| **Pandoc** | any recent version | *Optional* — enables the `.docx` fallback when LaTeX is absent |
+| **PyQt6** | `paperfessor[gui]` | *Optional* — the desktop GUI |
+| **Playwright** | `paperfessor[web]` + `playwright install` | *Optional* — browser-driven full-text retrieval |
+| **GPU (CUDA) + PyTorch** | any | *Optional* — only used for heavy or speed-topic experiments; everything runs on CPU by default |
+
+Works on **Windows, macOS, and Linux**.
+
 ## Installation
 
 ```bash
@@ -109,7 +135,16 @@ pip install "paperfessor[gui]"       # + desktop GUI (PyQt6)
 pip install "paperfessor[gui,web]"   # + Playwright browsing for full-text
 ```
 
-From a clone (for development): `pip install -e ".[gui,web,dev]"`.
+From a clone (for development): `pip install -e ".[gui,web,dev]"`, or
+`pip install -r requirements.txt` for just the core runtime.
+
+> ⚠️ **Version drift.** `pip install paperfessor` and
+> `pip install -r requirements.txt` install into the **active** environment and
+> may **upgrade or downgrade** packages you already have (`litellm`, `numpy`,
+> `matplotlib`, and `pydantic` pull large dependency trees). Install into a
+> **fresh virtualenv or conda env** to avoid disturbing other projects:
+> `python -m venv .venv && . .venv/bin/activate` (or
+> `conda create -n paperfessor python=3.11`), then install.
 
 **LaTeX** (TeX Live / MiKTeX / MacTeX with the `acmart` class) is recommended
 for PDF output; without it Paperfessor falls back to `.docx` (pandoc) or
@@ -161,20 +196,79 @@ pipeline, live agent status, token usage, and a built-in paper preview:
 
 ## Configuration
 
-Everything is settable via `.env` (prefix `PAPERFESSOR_`) or the GUI Settings
-tab. The essentials:
+Everything is settable via `.env` (prefix `PAPERFESSOR_`), CLI flags on
+`paperfessor run`, or the GUI **Settings** tab — you have full control over each
+agent's model, reasoning, and permissions.
+
+**Models & reasoning**
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PAPERFESSOR_PROVIDER` | `minimax` | LLM provider slug |
+| `PAPERFESSOR_PROVIDER` | `minimax` | LLM provider slug (`minimax`/`openai`/`anthropic`/`google`/`ollama`/`llamacpp`) |
 | `PAPERFESSOR_MODEL` | `MiniMax-M3` | Project-wide default model |
-| `PAPERFESSOR_PHD_MODEL` / `MS_MODEL` / `UG_MODEL` | `MiniMax-M3` | Per-agent overrides |
+| `PAPERFESSOR_PHD_MODEL` / `MS_MODEL` / `UG_MODEL` | `MiniMax-M3` | Per-agent model overrides |
 | `PAPERFESSOR_THINKING_MODE` | `true` | Extended-reasoning prefill |
-| `PAPERFESSOR_MAX_INPUT_TOKENS` | `1000000` | Input cap per call |
+| `PAPERFESSOR_MAX_INPUT_TOKENS` | `1000000` | Input cap per call (lower for local models with small context) |
 | `PAPERFESSOR_LANGUAGE` | `en` | Interface language `en / zh-CN / ja` |
+
+**Coordination budgets** (bound every agent loop; raise for quality, lower for cost)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PAPERFESSOR_MAX_METHOD_ROUNDS` | `3` | Improvement rounds before a method is abandoned |
+| `PAPERFESSOR_MAX_UG_ROUNDS` | `5` | UG implement→verify→fix attempts |
+| `PAPERFESSOR_MAX_INSPECTION_ROUNDS` | `3` | Whole-paper self-inspection cycles |
+| `PAPERFESSOR_MAX_LLM_CALLS` | `85` | Hard per-run LLM-call budget |
+
+**UG permissions** (see the safety section below)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PAPERFESSOR_UG_ALLOW_LOCAL_TOOLS` | `true` | UG may run local CLI tools (MATLAB/R/office/etc.) |
+| `PAPERFESSOR_UG_ALLOW_INSTALLS` | `true` | UG may `pip install` packages |
+| `PAPERFESSOR_UG_ALLOW_GPU` | `true` | UG may use CUDA for heavy/speed-topic experiments |
 
 Full list in [`.env.example`](.env.example). Per-agent model picking:
 `paperfessor models pick --group phd`.
+
+## Permissions, safety, and workspace layout
+
+Paperfessor runs real code and can touch your machine. Two protection layers:
+
+**⚠️ Default permissions are permissive.** Out of the box the Undergraduate
+agent **can install software and run local tools** (`ug_allow_installs` and
+`ug_allow_local_tools` default to `true`) so experiments "just work." If you do
+not want that, turn it off before running:
+
+```bash
+# Lock the UG down: no installs, no external tools, no GPU
+PAPERFESSOR_UG_ALLOW_INSTALLS=false \
+PAPERFESSOR_UG_ALLOW_LOCAL_TOOLS=false \
+PAPERFESSOR_UG_ALLOW_GPU=false \
+paperfessor run "your direction"
+```
+
+or set them in `.env` / the GUI Settings tab. Every install is logged to
+`workspace/src/tools/installed.txt` and every tool call to
+`workspace/shared/code_log.md` for audit. Note that **LLM-generated *model*
+code always runs in a strict sandbox** — no network, no file I/O, no shell —
+regardless of these settings; the permissions above govern only the UG agent's
+own toolbelt.
+
+**Hard folder scope.** Each agent may only create, modify, download, or install
+inside its assigned folders — enforced in code, not just prompted:
+
+| Agent | May write to | Never touches |
+|---|---|---|
+| 🎓 **PhD** | `workspace/paper/`, `workspace/archived/`, `workspace/doc_memo.md`, `workspace/article_memo.md`, `workspace/shared/*_guide.md` | source code, datasets, the work logs |
+| 📚 **Master's** | `workspace/shared/research_log.md`, downloaded papers under `workspace/src/papers/` | everything else |
+| 💻 **Undergraduate** | `workspace/src/` only — `code/`, `tmp/` (scratch), `datasets/` (downloads), `tools/` (installs), `results/`, `figures/` — and `workspace/shared/code_log.md` | anything outside `workspace/src/` (path-guarded; escapes are refused) |
+
+Nothing is written outside `workspace/`. Downloads land in
+`workspace/src/datasets/`, installed tools are recorded in
+`workspace/src/tools/`, temporary scripts go to `workspace/src/tmp/` (cleared
+each run), and only files the PhD explicitly copies into `workspace/paper/`
+reach the paper.
 
 ## CLI reference
 
@@ -189,10 +283,12 @@ paperfessor-gui                             # desktop app
 
 ## Good to know
 
-- **Honesty by construction.** If the survey is thin, the model fails
-  verification, or a dataset cannot be downloaded, the run is marked *failed*
-  and archived as such — the paper never papers over a gap with invented
-  numbers or "TBD" cells.
+- **Honesty guardrails (not a guarantee).** If the survey is thin, the model
+  fails verification, or a dataset cannot be downloaded, the run is marked
+  *failed* and archived as such, and the results table is filled only from
+  measured data. These checks make fabrication *hard*, but the LLM's prose can
+  still contain mistakes — the guardrails reduce risk, they do not remove the
+  need to review.
 - **Everything is inspectable.** The PhD's private memos
   (`doc_memo.md`, `article_memo.md`), both work logs, and the archive record
   every decision with timestamps.

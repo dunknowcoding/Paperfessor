@@ -1,0 +1,39 @@
+# Paperfessor core runtime dependencies.
+#
+# WARNING: `pip install -r requirements.txt` installs the minimum
+# versions below into the ACTIVE environment and MAY UPGRADE OR
+# DOWNGRADE packages you already have (litellm, numpy, matplotlib,
+# and pydantic in particular pull large dependency trees). To avoid
+# disturbing an existing environment, install into a fresh virtualenv
+# or conda env first:
+#
+#   python -m venv .venv && . .venv/bin/activate   # or conda create -n paperfessor python=3.11
+#   pip install -r requirements.txt
+#
+# Or just `pip install paperfessor`, which resolves the same set
+# through the package metadata.
+#
+# Optional extras are NOT listed here — install them explicitly:
+#   GUI:            pip install "paperfessor[gui]"     (PyQt6)
+#   web/browsing:   pip install "paperfessor[web]"     (playwright, then `playwright install`)
+#   development:    pip install "paperfessor[dev]"     (pytest, ruff, mypy)
+
+typer>=0.12.0
+rich>=13.7.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+httpx>=0.27.0
+litellm>=1.40.0
+keyring>=24.3.0
+platformdirs>=4.2.0
+PyYAML>=6.0.1
+cryptography>=42.0.0
+tenacity>=8.2.3
+tiktoken>=0.7.0
+requests>=2.31.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+matplotlib>=3.8.0
+pypdf>=4.0.0
+pypdfium2>=4.28.0
+pillow>=10.0.0

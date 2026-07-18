@@ -145,6 +145,17 @@ def run(
     max_inspection_rounds: Optional[int] = typer.Option(
         None, "--max-inspection-rounds",
         help="Whole-paper self-inspection cycles (default 3)"),
+    paper_max_pages: Optional[int] = typer.Option(
+        None, "--paper-max-pages", help="Main-body page budget (default 9)"),
+    ug_allow_installs: Optional[bool] = typer.Option(
+        None, "--ug-allow-installs/--no-ug-allow-installs",
+        help="Let the UG pip-install packages (default: allowed)"),
+    ug_allow_local_tools: Optional[bool] = typer.Option(
+        None, "--ug-allow-local-tools/--no-ug-allow-local-tools",
+        help="Let the UG run local CLI tools like MATLAB/R (default: allowed)"),
+    ug_allow_gpu: Optional[bool] = typer.Option(
+        None, "--ug-allow-gpu/--no-ug-allow-gpu",
+        help="Let the UG use CUDA for heavy experiments (default: allowed)"),
     verbose: bool = typer.Option(False, "--verbose", "-V"),
 ) -> None:
     """Start a new 3-agent run from a research direction."""
@@ -190,6 +201,14 @@ def run(
         settings.max_ug_rounds = max_ug_rounds
     if max_inspection_rounds is not None:
         settings.max_inspection_rounds = max_inspection_rounds
+    if paper_max_pages is not None:
+        settings.paper_max_pages = paper_max_pages
+    if ug_allow_installs is not None:
+        settings.ug_allow_installs = ug_allow_installs
+    if ug_allow_local_tools is not None:
+        settings.ug_allow_local_tools = ug_allow_local_tools
+    if ug_allow_gpu is not None:
+        settings.ug_allow_gpu = ug_allow_gpu
     ensure_dirs()
 
     con = _console()

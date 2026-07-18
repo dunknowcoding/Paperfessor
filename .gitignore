@@ -23,7 +23,7 @@ ENV/
 *.swo
 *~
 
-# Testing
+# Testing / type / lint caches
 .pytest_cache/
 .coverage
 .coverage.*
@@ -33,8 +33,6 @@ htmlcov/
 coverage.xml
 *.cover
 .hypothesis/
-
-# Type checking / linting
 .mypy_cache/
 .ruff_cache/
 .dmypy.json
@@ -44,34 +42,18 @@ coverage.xml
 Thumbs.db
 desktop.ini
 
-# Paperfessor runtime — workspace holds live paper work (memos,
-# logs, runs, archived attempts). Recreated from ``src/workspace.py``
-# on demand; never commit the filled state.
-workspace/.cache/
-workspace/shared/research_log.md
-workspace/shared/code_log.md
-workspace/shared/research_guide.md
-workspace/shared/code_guide.md
-workspace/doc_memo.md
-workspace/article_memo.md
-workspace/memory.sqlite3
-workspace/archived/
-workspace/paper/body/
-workspace/paper/templates/
-workspace/src/datasets/
-workspace/src/papers/
-workspace/src/code/
-workspace/src/figures/
-workspace/src/results/
-workspace/src/tools/
+# Paperfessor runtime: the whole workspace/ is live paper work
+# (memos, logs, runs, archived attempts), bootstrapped from templates
+# in paperfessor/workspace.py on demand. Never commit the filled state.
+/workspace/
 
-# Local user data — keys live in the OS keychain, never on disk.
+# Local user data. API keys live in the OS keychain, never on disk.
 .paperfessor/
 data/
 *.pfdb
 *.pfsec
 
-# Private plans / internal docs — never published with the code.
+# Private plans / internal governance docs. Never published.
 req.txt
 SOUL.md
 PROJECT_PLAN.md
@@ -81,19 +63,13 @@ notes/
 # Logs
 *.log
 logs/
-.test_loop.out.txt
-.test_loop.err.txt
-.test_loop_latest/
-.test_loop_prev/
 _e2e_log*.txt
 _trace*.log
 
-# Generated
+# Dev scripts are not part of the distributed package.
+/scripts/
+
+# Generated / build artifacts
 dist/
 build/
 output/
-
-# Development-only folders (root) — not part of the distributed package
-/tests/
-/scripts/
-/data/
