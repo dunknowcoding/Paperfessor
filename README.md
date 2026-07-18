@@ -8,7 +8,8 @@
 
 *Supervised by Prof. Meerk — a meerkat who never stops watching over your research.*
 
-[![PyPI](https://img.shields.io/badge/pip%20install-paperfessor-2E5E4E.svg)](https://pypi.org/project/paperfessor/)
+[![PyPI version](https://img.shields.io/pypi/v/paperfessor.svg?color=2E5E4E)](https://pypi.org/project/paperfessor/)
+[![CI](https://github.com/dunknowcoding/Paperfessor/actions/workflows/workflow.yml/badge.svg)](https://github.com/dunknowcoding/Paperfessor/actions/workflows/workflow.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2E5E4E.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-33475B.svg)](pyproject.toml)
 [![Platforms](https://img.shields.io/badge/OS-Windows%20%7C%20macOS%20%7C%20Linux-33475B.svg)](#installation)
