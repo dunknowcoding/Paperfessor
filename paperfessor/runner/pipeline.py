@@ -809,6 +809,22 @@ def _phase_plan(
             f"why (metrics, acceleration, balance, structure), or "
             f"'defaults' if none>"
         )
+    # Paper goal shapes the innovation step: SOTA wants a novel method
+    # that can win; the other goals want an appropriate framing.
+    goal = getattr(phd._settings, "paper_goal", "sota")
+    goal_note = {
+        "sota": "GOAL: state-of-the-art. Propose a NOVEL method that can "
+                "plausibly BEAT the baselines.",
+        "comparison": "GOAL: a fair comparison/benchmark study. The 'method' "
+                "is the evaluation angle; you need not beat every baseline — "
+                "an honest head-to-head is the contribution.",
+        "experiments": "GOAL: an empirical study. Propose a concrete method to "
+                "study; reporting where it works and fails IS the contribution.",
+        "review": "GOAL: a literature review / survey. Propose the ORGANIZING "
+                "theme (taxonomy/axes), not a new algorithm to beat baselines.",
+        "exploration": "GOAL: open-ended exploration. Propose a promising "
+                "direction; report findings as-is.",
+    }.get(goal, "GOAL: state-of-the-art.")
     # Use a long, structured system prompt. Earlier diagnostics showed
     # the LLM returns empty when the system is short and the user is
     # long; padding the system to ~1 KB is a reliable workaround.
@@ -816,7 +832,8 @@ def _phase_plan(
         "You are a research PhD leading a small group (one master's student, "
         "one undergraduate) on a top-venue ML paper. Your job right now is "
         "the INNOVATION step: given a research direction and the archive of "
-        "prior attempts, propose ONE concrete method to try next. The method "
+        "prior attempts, propose ONE concrete method to try next. "
+        f"{goal_note} The method "
         "must be: (1) specific enough to be implementable in 1-2 weeks by "
         "the UG, (2) novel relative to the archive, and (3) defensible at a "
         "top venue (NeurIPS / ICML / ICLR / KDD / ACL / CVPR tier). The MS "
