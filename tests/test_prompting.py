@@ -8,7 +8,9 @@ def test_compose_system_prompt_includes_guardrails_and_shared_skills() -> None:
 
     assert "You are the planner." in text
     assert "Operating guardrails" in text
-    assert "Windows Credential Manager" in text
+    assert "credential manager" in text.lower()
+    # No-capability-refusal constraint must be present (local models).
+    assert "capability grounds" in text
     assert "Shared operating skills" in text
     assert "Prompt engineering foundation" in text
     assert "Stage handoff and communication protocol" in text

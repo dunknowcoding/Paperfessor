@@ -20,6 +20,36 @@ from paperfessor.llm.router import LLMRouter
 logger = logging.getLogger(__name__)
 
 
+# Capability-refusal phrases: some models (especially local ones) decline
+# tool-shaped tasks with a generic "I can't do X" even though the PROGRAM,
+# not the model, performs the action. A short reply matching these is
+# treated as a failed attempt and retried with an escalated reminder.
+import re as _re
+
+_REFUSAL_PATTERNS = tuple(_re.compile(p, _re.I) for p in (
+    r"\bi (?:cannot|can't|can not|am unable to|am not able to)\b[^.]{0,60}"
+    r"(?:search|browse|access|download|read|write|open|run|execute|"
+    r"the (?:web|internet|file|filesystem))",
+    r"\bas an ai\b[^.]{0,80}(?:cannot|can't|do not have|don't have|unable)",
+    r"\bi (?:do not|don't) have (?:access|the ability)\b",
+    r"\bi'm (?:just|only) a (?:language|text)\b",
+    r"\bunable to (?:access|browse|search|download|run|execute)\b",
+))
+
+
+def _is_capability_refusal(text: str | None) -> bool:
+    """True when ``text`` is a short reply dominated by a capability
+    disclaimer rather than the requested artifact."""
+    if not text:
+        return False
+    t = text.strip()
+    # Only treat SHORT replies as refusals — a long, substantive answer
+    # that happens to contain a caveat is fine.
+    if len(t) > 600:
+        return False
+    return any(p.search(t) for p in _REFUSAL_PATTERNS)
+
+
 class _WorkspaceAgent:
     """Common scaffolding for the PhD, MS, and UG agents."""
 
@@ -103,8 +133,17 @@ class _WorkspaceAgent:
         """
         full_system = self._compose_system(system, with_skills=with_skills)
         cur_temp = temperature if temperature is not None else 0.4
+        base_user = user
         last = ""
         for i in range(max(1, attempts)):
+            # After a capability refusal, prepend an escalated reminder.
+            if i > 0 and _is_capability_refusal(last):
+                user = (
+                    "REMINDER: the program performs all search / download / "
+                    "file / code actions from your output — you do NOT need "
+                    "tool access and must NOT refuse on capability grounds. "
+                    "Produce the requested artifact now.\n\n" + base_user
+                )
             last = self._router.complete(
                 role=role,
                 group=self._group,
@@ -114,12 +153,14 @@ class _WorkspaceAgent:
                 temperature=cur_temp,
                 disable_thinking=disable_thinking,
             )
-            if last and len(last.strip()) >= max(1, min_chars):
+            if (last and len(last.strip()) >= max(1, min_chars)
+                    and not _is_capability_refusal(last)):
                 return last
             logger.warning(
-                "LLM returned %d chars for %s/%s (attempt %d/%d); retrying",
-                len(last.strip()) if last else 0, self._group, role,
-                i + 1, max(1, attempts),
+                "LLM %s for %s/%s (attempt %d/%d); retrying",
+                "refused on capability grounds" if _is_capability_refusal(last)
+                else f"returned {len(last.strip()) if last else 0} chars",
+                self._group, role, i + 1, max(1, attempts),
             )
             cur_temp = min(1.0, cur_temp + 0.2)
         return last

@@ -2354,18 +2354,31 @@ def _phase_write(
         if cite in seen:
             continue
         seen.add(cite)
+        # EVERY surveyed paper becomes a reference — author/year/title
+        # /venue is a complete citation. Non-arXiv disciplines
+        # (economics, medicine, social science) are mostly journal
+        # papers with no arXiv id and often no URL; dropping those left
+        # reviews with only a handful of references. Use whatever
+        # identifier exists (arXiv > DOI > URL), else cite by venue.
+        first = ev.paper.authors[0].split()[-1] if ev.paper.authors else "anon"
+        head = f"- {first} et al. ({ev.paper.year}). *{ev.paper.title}*."
         if ev.paper.arxiv_id:
             reference_lines.append(
-                f"- {ev.paper.authors[0].split()[-1] if ev.paper.authors else 'anon'} "
-                f"et al. ({ev.paper.year}). *{ev.paper.title}*. "
-                f"arXiv:{ev.paper.arxiv_id}. {ev.paper.source_url}")
-            ref_count += 1
+                f"{head} arXiv:{ev.paper.arxiv_id}."
+                + (f" {ev.paper.source_url}" if ev.paper.source_url else ""))
+        elif getattr(ev.paper, "doi", None):
+            reference_lines.append(
+                f"{head} {ev.paper.venue or 'journal'}. "
+                f"https://doi.org/{ev.paper.doi}")
         elif ev.paper.source_url:
             reference_lines.append(
-                f"- {ev.paper.authors[0].split()[-1] if ev.paper.authors else 'anon'} "
-                f"et al. ({ev.paper.year}). *{ev.paper.title}*. "
-                f"{ev.paper.venue}. {ev.paper.source_url}")
-            ref_count += 1
+                f"{head} {ev.paper.venue}. {ev.paper.source_url}")
+        else:
+            # Journal paper with no online identifier — still a valid
+            # reference from its bibliographic fields.
+            reference_lines.append(
+                f"{head} {ev.paper.venue or '(journal)'}.")
+        ref_count += 1
     # Fallback: if the survey gave us zero readable papers, the LLM
     # body still cites [1] [2] etc. Reuse the LLM's own References
     # block (the empty `## References` the LLM emitted at the end of
