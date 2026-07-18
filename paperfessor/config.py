@@ -128,14 +128,34 @@ class Settings(BaseSettings):
     ug_tool_timeout_seconds: int = Field(default=300, ge=10, le=3600)
     ug_extra_allowed_imports: str = ""   # comma-separated, e.g. "numba,jax"
 
+    # --- Paper goal -------------------------------------------------------
+    # What the paper is FOR. Only "sota" makes competitiveness a hard
+    # requirement (the PhD keeps improving/switching methods until the
+    # proposed method beats the baselines). The other goals accept an
+    # honestly-reported result without a SOTA win:
+    #   sota        - pursue state-of-the-art (default); iterate to win
+    #   comparison  - fair benchmark of methods; no win required
+    #   experiments - empirical study; report what happens
+    #   review      - literature review / survey; no proposed method
+    #   exploration - open-ended; report findings as-is
+    paper_goal: Literal[
+        "sota", "comparison", "experiments", "review", "exploration"
+    ] = "sota"
+
     # --- Coordination (full user control via CLI --flags / GUI) -----------
     # Bounds for every agent loop. Defaults favor quality on cloud
     # APIs; lower them for cheaper/faster runs.
-    max_method_rounds: int = Field(default=3, ge=1, le=10)
+    # max_method_rounds: improvement retries on the SAME method (UG model
+    # changes, hyperparameter tuning, minor theory edits) before it is
+    # declared defective. 1..1000 (effectively unbounded for a campaign).
+    max_method_rounds: int = Field(default=3, ge=1, le=1000)
     max_ug_rounds: int = Field(default=5, ge=1, le=10)
     max_section_redrafts: int = Field(default=1, ge=0, le=5)
     max_inspection_rounds: int = Field(default=3, ge=1, le=10)
     max_llm_calls: int = Field(default=85, ge=5, le=1000)
+    # Campaign: max total method attempts across improve/switch/replan
+    # before the campaign stops and returns its best result.
+    max_campaign_attempts: int = Field(default=6, ge=1, le=100)
 
     # --- v0.4: workspace ----------------------------------------------------
     auto_bootstrap_workspace: bool = True

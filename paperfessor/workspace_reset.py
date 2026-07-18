@@ -46,6 +46,34 @@ def prepare_workspace_for_new_paper(target: Path | None = None) -> Path:
     return target
 
 
+def reset_for_replan(target: Path | None = None) -> Path:
+    """Reset for a fresh planning phase after all feasible methods on a
+    direction have failed — WITHOUT losing accumulated memory.
+
+    Per the spec: when the PhD exhausts its planned directions it
+    starts a new planning phase but KEEPS its memory files (doc_memo,
+    article_memo, the archive, the SQLite history) so the new plan is
+    informed by everything learned. Only the generated article and the
+    experiment artifacts — including downloaded datasets — are cleared.
+    Downloaded PAPERS are kept (they are literature, not experiment
+    output, and re-fetching wastes arXiv budget).
+    """
+    target = Path(target) if target is not None else workspace_dir()
+    bootstrap_workspace(target)
+    # Clear the generated article and experiment outputs, plus the
+    # downloaded datasets — but NOT the memos/archive (durable memory)
+    # and NOT src/papers/src/tools.
+    _clear_children(target / "paper", keep_names=_PAPER_KEEP)
+    _clear_children(target / "src", keep_names={"README.md", "papers", "tools"})
+    # Reset only the active guides/logs; memos and archive persist.
+    _rewrite_from_templates(target, (
+        "shared/research_guide.md", "shared/code_guide.md",
+        "shared/research_log.md", "shared/code_log.md",
+    ))
+    (target / "paper" / "body").mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def hard_reset_workspace(target: Path | None = None) -> Path:
     """Wipe and rebuild the runtime workspace from templates."""
     target = Path(target) if target is not None else workspace_dir()
@@ -72,4 +100,8 @@ def _clear_children(root: Path, *, keep_names: set[str]) -> None:
             child.unlink()
 
 
-__all__ = ["hard_reset_workspace", "prepare_workspace_for_new_paper"]
+__all__ = [
+    "hard_reset_workspace",
+    "prepare_workspace_for_new_paper",
+    "reset_for_replan",
+]

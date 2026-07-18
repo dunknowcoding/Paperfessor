@@ -17,6 +17,24 @@
 #   GUI:            pip install "paperfessor[gui]"     (PyQt6)
 #   web/browsing:   pip install "paperfessor[web]"     (playwright, then `playwright install`)
 #   development:    pip install "paperfessor[dev]"     (pytest, ruff, mypy)
+#
+# OPTIONAL SCIENTIFIC PACKAGES the Undergraduate agent may use for
+# some research topics (NOT installed by default — kept out of the
+# core so a plain install stays lightweight):
+#   torch            deep-learning experiments / GPU acceleration
+#   opencv-python    image / vision topics
+#   pandas           tabular data handling
+#   scipy statsmodels statistics / signal processing
+#   networkx         graph topics
+#
+# AUTO-INSTALL WARNING: if the UG has install permission
+# (PAPERFESSOR_UG_ALLOW_INSTALLS=true, the DEFAULT), it will pip-install
+# any package it needs DURING paper generation — into the active
+# environment. Every such install is logged to
+# workspace/src/tools/installed.txt. To forbid it, set
+# PAPERFESSOR_UG_ALLOW_INSTALLS=false (see the README permissions
+# section). Running inside a dedicated venv/conda env is strongly
+# recommended so auto-installs never disturb your other projects.
 
 typer>=0.12.0
 rich>=13.7.0

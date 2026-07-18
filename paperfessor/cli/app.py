@@ -156,6 +156,17 @@ def run(
     ug_allow_gpu: Optional[bool] = typer.Option(
         None, "--ug-allow-gpu/--no-ug-allow-gpu",
         help="Let the UG use CUDA for heavy experiments (default: allowed)"),
+    goal: Optional[str] = typer.Option(
+        None, "--goal", "-g",
+        help="Paper goal: sota (default) | comparison | experiments | review | exploration. "
+             "Only 'sota' requires the method to beat the baselines."),
+    campaign: bool = typer.Option(
+        False, "--campaign",
+        help="Pursue the goal across multiple method attempts (improve -> "
+             "switch -> replan) instead of a single attempt."),
+    max_campaign_attempts: Optional[int] = typer.Option(
+        None, "--max-campaign-attempts",
+        help="Total method attempts in a campaign (default 6)"),
     verbose: bool = typer.Option(False, "--verbose", "-V"),
 ) -> None:
     """Start a new 3-agent run from a research direction."""
@@ -209,18 +220,30 @@ def run(
         settings.ug_allow_local_tools = ug_allow_local_tools
     if ug_allow_gpu is not None:
         settings.ug_allow_gpu = ug_allow_gpu
+    if goal:
+        if goal not in ("sota", "comparison", "experiments", "review", "exploration"):
+            err_console.print(f"[danger]x[/danger] unknown goal '{goal}'")
+            raise typer.Exit(code=1) from None
+        settings.paper_goal = goal  # type: ignore[assignment]
+    if max_campaign_attempts is not None:
+        settings.max_campaign_attempts = max_campaign_attempts
     ensure_dirs()
 
     con = _console()
     banner(con, direction=direction)
-    display_info(con, f"starting run for: {direction}")
+    display_info(con, f"starting {'campaign' if campaign else 'run'} for: {direction} "
+                      f"(goal={settings.paper_goal})")
 
     router = get_default_router()
     # Hot-swap the router's settings to the overrides the user just set.
     router._settings = settings  # type: ignore[attr-defined]
 
-    from paperfessor.runner.pipeline import run as pipeline_run
-    result = pipeline_run(direction, settings=settings, router=router)
+    if campaign:
+        from paperfessor.runner.pipeline import run_campaign
+        result = run_campaign(direction, settings=settings, router=router)
+    else:
+        from paperfessor.runner.pipeline import run as pipeline_run
+        result = pipeline_run(direction, settings=settings, router=router)
     display_section(
         con, "run finished",
         [

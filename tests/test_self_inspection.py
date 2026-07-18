@@ -215,6 +215,51 @@ def test_review_input_keeps_structure_and_references():
     assert "omitted" in out
 
 
+def test_competitiveness_gated_by_sota_mode():
+    from paperfessor.runner.pipeline import RunReadiness
+    # Uncompetitive method: fails in SOTA mode, passes otherwise.
+    sota = RunReadiness(readable_papers=5, survey_blocked=False,
+                        code_fallback=False, placeholder_metric=False,
+                        visual_ok=True, method_uncompetitive=True, sota_mode=True)
+    assert any("won best F1 on no dataset" in i for i in sota.issues())
+    non_sota = RunReadiness(readable_papers=5, survey_blocked=False,
+                            code_fallback=False, placeholder_metric=False,
+                            visual_ok=True, method_uncompetitive=True, sota_mode=False)
+    assert not any("won best F1" in i for i in non_sota.issues())
+    # A hard defect still fails regardless of goal.
+    broken = RunReadiness(readable_papers=5, survey_blocked=False,
+                          code_fallback=True, placeholder_metric=False,
+                          visual_ok=True, method_uncompetitive=True, sota_mode=False)
+    assert broken.issues()
+
+
+def test_reset_for_replan_keeps_memory_clears_artifacts(tmp_path):
+    from paperfessor.workspace_reset import reset_for_replan
+    ws = tmp_path / "workspace"
+    # Seed memory + artifacts + datasets.
+    (ws).mkdir()
+    (ws / "doc_memo.md").write_text("MEMORY KEEP", encoding="utf-8")
+    (ws / "article_memo.md").write_text("MEMORY KEEP", encoding="utf-8")
+    (ws / "archived").mkdir(); (ws / "archived" / "a").mkdir()
+    (ws / "archived" / "a" / "metadata.yaml").write_text("x", encoding="utf-8")
+    (ws / "paper" / "body").mkdir(parents=True)
+    (ws / "paper" / "body" / "paper.pdf").write_text("ARTIFACT", encoding="utf-8")
+    (ws / "src" / "datasets" / "d").mkdir(parents=True)
+    (ws / "src" / "datasets" / "d" / "train_x.npy").write_text("DATA", encoding="utf-8")
+    (ws / "src" / "papers").mkdir(parents=True)
+    (ws / "src" / "papers" / "p.pdf").write_text("PAPER", encoding="utf-8")
+    reset_for_replan(ws)
+    # Memory kept.
+    assert (ws / "doc_memo.md").read_text(encoding="utf-8") == "MEMORY KEEP"
+    assert (ws / "article_memo.md").read_text(encoding="utf-8") == "MEMORY KEEP"
+    assert (ws / "archived" / "a" / "metadata.yaml").is_file()
+    # Downloaded papers kept (literature, not experiment output).
+    assert (ws / "src" / "papers" / "p.pdf").is_file()
+    # Artifacts + datasets cleared.
+    assert not (ws / "paper" / "body" / "paper.pdf").is_file()
+    assert not (ws / "src" / "datasets" / "d").exists()
+
+
 def test_reassemble_round_trip():
     md = _reassemble_paper(
         "M", [("Abstract", "body A"), ("3. Method", "body B")],

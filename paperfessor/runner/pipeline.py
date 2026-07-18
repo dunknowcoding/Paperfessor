@@ -200,6 +200,10 @@ class RunReadiness:
     # but per the spec the pipeline should then move on to a
     # different method rather than declare success.
     method_uncompetitive: bool = False
+    # SOTA mode makes competitiveness a hard gate; other paper goals
+    # (comparison / experiments / review / exploration) accept an
+    # honestly-reported result without a SOTA win.
+    sota_mode: bool = True
 
     @property
     def force_provisional_write(self) -> bool:
@@ -219,11 +223,11 @@ class RunReadiness:
             out.append("Article 19 visual inspection did not pass")
         if self.pdf_missing:
             out.append("no rendered PDF (pdflatex failed; .md/.tex only)")
-        if self.method_uncompetitive:
+        if self.method_uncompetitive and self.sota_mode:
             out.append(
-                "proposed method won best F1 on no dataset (req: iterate "
-                "methods until competitive; archived so the next run "
-                "tries a different method)"
+                "proposed method won best F1 on no dataset (SOTA goal: "
+                "iterate methods until competitive; archived so the next "
+                "attempt tries a different method)"
             )
         return out
 
@@ -286,7 +290,8 @@ def run(
         _phd_review_workers(phd, ms, ug)
         paper_path = _phase_write(phd, router, direction, method, budgets["write"], ms=ms, ug=ug)
         result.paper_path = str(paper_path) if paper_path else None
-        readiness = _assess_run_readiness(workspace, paper_path)
+        _sota = getattr(settings, "paper_goal", "sota") == "sota"
+        readiness = _assess_run_readiness(workspace, paper_path, sota_mode=_sota)
         if readiness.issues():
             result.status = "failed"
             result.note = "; ".join(readiness.issues())
@@ -370,6 +375,81 @@ def run(
         logger.exception("memory write failed; continuing")
 
     return result
+
+
+def run_campaign(
+    direction: str,
+    *,
+    settings: Settings,
+    router: LLMRouter,
+    workspace: Path | None = None,
+    phase_budgets: dict[str, float] | None = None,
+    on_attempt: "Any | None" = None,
+) -> PipelineResult:
+    """Run a full research CAMPAIGN toward the paper goal.
+
+    This is the outer control loop the spec describes:
+
+    - **SOTA goal (default)**: keep attempting until the proposed
+      method beats the baselines, or the campaign budget is spent.
+      Across attempts the archive-driven strategy improves the SAME
+      method up to ``max_method_rounds`` (UG model changes, retuning,
+      minor theory edits), then abandons it and designs a different
+      one. When many methods have been tried without success — i.e.
+      the planned directions are exhausted — the PhD starts a FRESH
+      planning phase: memory (memos, archive, history) is KEPT so the
+      new plan learns from every failure, while the generated article,
+      experiment outputs, and downloaded datasets are cleared
+      (:func:`reset_for_replan`).
+    - **Non-SOTA goals** (comparison / experiments / review /
+      exploration): a single clean, honestly-reported paper satisfies
+      the goal; the campaign returns after the first ``ok`` run.
+
+    A single ``run`` is one method attempt; the campaign chains them.
+    Returns the first successful result, or the best/last attempt if
+    the budget is exhausted without a win.
+    """
+    from paperfessor.workspace_reset import reset_for_replan
+
+    ws = Path(workspace) if workspace is not None else workspace_dir()
+    sota = getattr(settings, "paper_goal", "sota") == "sota"
+    max_attempts = int(getattr(settings, "max_campaign_attempts", 6))
+    method_rounds = int(getattr(settings, "max_method_rounds", 3))
+
+    best: PipelineResult | None = None
+    consecutive_fail = 0
+    for attempt in range(1, max_attempts + 1):
+        # After a run of failures spanning a full improvement budget,
+        # the current directions are exhausted: replan from scratch,
+        # keeping memory but clearing artifacts + datasets.
+        if sota and consecutive_fail >= method_rounds:
+            logger.info(
+                "campaign: %d consecutive failures >= %d improvement rounds; "
+                "replanning (memory kept, artifacts cleared)",
+                consecutive_fail, method_rounds,
+            )
+            reset_for_replan(ws)
+            consecutive_fail = 0
+
+        result = run(direction, settings=settings, router=router,
+                     workspace=ws, phase_budgets=phase_budgets)
+        if on_attempt is not None:
+            try:
+                on_attempt(attempt, result)
+            except Exception:  # noqa: BLE001
+                logger.exception("campaign on_attempt callback raised; continuing")
+
+        # Track the best result: prefer ok, else the one with a PDF.
+        if best is None or (result.status == "ok" and best.status != "ok"):
+            best = result
+        if result.status == "ok":
+            logger.info("campaign: success on attempt %d (%s)", attempt, result.method)
+            return result
+        consecutive_fail += 1
+
+    logger.info("campaign: budget of %d attempts exhausted; returning best effort",
+                max_attempts)
+    return best if best is not None else result
 
 
 # ---- Phases ---------------------------------------------------------------
@@ -3750,7 +3830,9 @@ def _section_fallback(
     return ""
 
 
-def _assess_run_readiness(workspace: Path, paper_path: Path | None) -> RunReadiness:
+def _assess_run_readiness(
+    workspace: Path, paper_path: Path | None, *, sota_mode: bool = True,
+) -> RunReadiness:
     research_log = (workspace / "shared" / "research_log.md").read_text(encoding="utf-8") \
         if (workspace / "shared" / "research_log.md").is_file() else ""
     code_log = (workspace / "shared" / "code_log.md").read_text(encoding="utf-8") \
@@ -3816,6 +3898,7 @@ def _assess_run_readiness(workspace: Path, paper_path: Path | None) -> RunReadin
         visual_ok=visual_ok,
         pdf_missing=pdf_missing,
         method_uncompetitive=method_uncompetitive,
+        sota_mode=sota_mode,
     )
 
 

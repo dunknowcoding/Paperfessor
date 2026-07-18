@@ -281,6 +281,42 @@ paperfessor config show | paperfessor doctor
 paperfessor-gui                             # desktop app
 ```
 
+## Research goals and the SOTA campaign
+
+By default Paperfessor **pursues state-of-the-art**: the proposed method must
+beat the baselines, or the run is marked *failed* and the next attempt tries a
+different method. Tell it otherwise when your paper isn't chasing a win:
+
+```bash
+paperfessor run "..." --goal comparison    # fair benchmark; no win required
+paperfessor run "..." --goal experiments   # empirical study; report what happens
+paperfessor run "..." --goal review        # literature review / survey
+paperfessor run "..." --goal exploration   # open-ended; findings as-is
+# --goal sota (default): iterate until competitive
+```
+
+A single `paperfessor run` is **one method attempt**. To let the PhD pursue the
+goal across many attempts — improve the same method (UG model changes,
+hyperparameter tuning, minor theory edits) up to `--max-method-rounds` times,
+then abandon it and design a different one, and when all planned methods are
+exhausted start a **fresh planning phase that keeps memory but clears the
+article, experiments, and datasets** — run a **campaign**:
+
+```bash
+paperfessor run "..." --campaign --max-campaign-attempts 6
+```
+
+Retry depth is yours to set: `--max-method-rounds` accepts **1 to effectively
+unbounded** (default 3). In non-SOTA goals a campaign stops at the first clean,
+honestly-reported paper.
+
+> ⚠️ **Optional packages may be auto-installed.** Some topics need libraries
+> beyond the core (e.g. `torch`, `opencv-python`, `pandas`, `scipy`,
+> `networkx`). With the default UG install permission, the agent installs any
+> it needs *during* generation into the active environment (logged to
+> `workspace/src/tools/installed.txt`). Use a dedicated venv/conda env, or set
+> `PAPERFESSOR_UG_ALLOW_INSTALLS=false` to forbid it.
+
 ## Good to know
 
 - **Honesty guardrails (not a guarantee).** If the survey is thin, the model
