@@ -40,6 +40,32 @@
   unattended. When a topic needs them, report that they require
   user-provided access rather than fabricating coverage.
 
+## Judging venue tier (identify the TOP-tier venues)
+
+A strong paper's reference list is long and drawn overwhelmingly from
+TOP-tier conferences and journals. Prefer, and preferentially cite,
+work from leading venues. To classify a venue's tier:
+
+1. **OpenAlex source metadata** (built-in, robust): a source's
+   `h_index`, 2-year mean citedness, and works count are strong tier
+   signals. High h-index + high citedness = top-tier. Use
+   `find_top_venues(field)` (OpenAlex works aggregation) to rank the
+   venues actually publishing a field's work.
+2. **Citation count of the paper itself**: within a field, heavily
+   cited papers are usually in top venues — a usable prestige proxy
+   when venue metadata is missing.
+3. **Curated top-tier lists** (built-in `venue_index`): the community
+   A*/A consensus for CS fields.
+4. **External indices when accessible**: JCR quartile (Q1/Q2), CAS
+   division, SCI/EI indexing, CORE rank, and journal databases such as
+   LetPub (letpub.com) give impact factor / quartile / classification.
+   These sites often need navigation or a login; when a topic needs a
+   tier ruling they cannot resolve unattended, report which venues
+   need a manual tier check rather than guessing.
+
+Report each surveyed paper's venue and its tier signal so the PhD can
+build a reference list that is long and dominated by top venues.
+
 ## Non-negotiable
 
 Whatever the source, the same honesty rules apply: read what you can
