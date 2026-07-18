@@ -1,7 +1,9 @@
 """Paperfessor build metadata.
 
-The orchestrator hashes :data:`SOUL_PATH` at run start to detect
-tampering (Article 4 of the SOUL).
+If an optional governance file (``SOUL.md``) is present at the project
+root, the orchestrator hashes it at run start as an integrity check;
+when absent (the normal case for an installed package) the check is
+skipped gracefully.
 """
 
 from __future__ import annotations
@@ -9,7 +11,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-__version__: str = "0.4.0"
+__version__: str = "1.0.0"
 __author__: str = "Paperfessor Project"
 __license__: str = "MIT"
 

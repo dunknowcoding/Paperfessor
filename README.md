@@ -1,17 +1,18 @@
 <div align="center">
 
-<h1>
-  <img src="assets/Prof_Meerk.png" width="88" alt="Prof. Meerk — the Paperfessor mascot" valign="middle"/>
-  &nbsp;Paperfessor
-</h1>
+<img src="assets/Prof_Meerk.png" width="150" alt="Prof. Meerk — the Paperfessor mascot"/>
 
-**A research direction goes in. A survey, real experiments, and a venue-formatted paper come out.**
+# Paperfessor
 
-*Supervised by Prof. Meerk — always standing watch over your research.*
+### A research direction goes in. A survey, real experiments, and a venue-formatted paper come out.
 
+*Supervised by Prof. Meerk — a meerkat who never stops watching over your research.*
+
+[![PyPI](https://img.shields.io/badge/pip%20install-paperfessor-2E5E4E.svg)](https://pypi.org/project/paperfessor/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2E5E4E.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-33475B.svg)](pyproject.toml)
-[![Status](https://img.shields.io/badge/Status-Research%20Preview-B7412E.svg)](#responsible-use-and-disclaimer)
+[![Platforms](https://img.shields.io/badge/OS-Windows%20%7C%20macOS%20%7C%20Linux-33475B.svg)](#installation)
+[![Research use only](https://img.shields.io/badge/Use-Research%20only-B7412E.svg)](#responsible-use-and-disclaimer)
 
 **English** · [简体中文](docs/zh-CN/README.md) · [日本語](docs/ja/README.md) · [Español](docs/es/README.md) · [Français](docs/fr/README.md) · [Deutsch](docs/de/README.md) · [Italiano](docs/it/README.md) · [Português](docs/pt/README.md) · [Русский](docs/ru/README.md) · [한국어](docs/ko/README.md) · [العربية](docs/ar/README.md)
 
@@ -23,9 +24,33 @@
 
 ---
 
-Paperfessor is a three-agent research assistant that runs on your own machine
-and your own API key. Give it a research direction — one sentence is enough —
-and its agent group works the way a small lab does:
+## Why Paperfessor?
+
+Most "AI paper writers" hallucinate citations and numbers. **Paperfessor doesn't** —
+it is built so a paper is *earned*, not *invented*:
+
+- 📊 **Real experiments, real numbers** — it downloads real public datasets, runs
+  the proposed method and baselines itself (k = 3 seeds, mean ± 95% CI), and puts
+  the *measured* results in the paper. No fabricated metrics, no "TBD" cells.
+- 📚 **Real citations** — every reference is resolved against arXiv / OpenAlex /
+  Semantic Scholar; unverifiable citations are removed.
+- 🔍 **Self-inspecting** — the PhD agent re-reads the whole paper against the
+  measured results, fixes defects, and re-checks the rendered layout, page by
+  page, until it is clean.
+- 🔒 **Private by design** — your API key lives in the OS keychain; no local paths,
+  filenames, or machine info ever reach the paper.
+- 🖥️ **Runs on your machine, your key** — cloud LLMs or local Ollama / llama.cpp.
+
+> **A recent end-to-end run** on *"anomaly detection in multivariate time series"*
+> produced a 10-page KDD-formatted PDF where the proposed method won best-F1 on
+> 2 of 3 datasets (e.g. **F1 0.703, AUROC 0.946** on SMD vs the strongest baseline
+> at 0.595) — every number traceable to `results.json`, all 10 pages passing the
+> layout inspector, and the one dataset it lost on stated plainly.
+
+---
+
+Paperfessor is a three-agent research assistant. Give it a research direction —
+one sentence is enough — and its agent group works the way a small lab does:
 
 | Agent | Role | Status API |
 |---|---|---|
@@ -60,17 +85,35 @@ The PhD reviews the workers **passively** (on every report) and **actively**
 plain-Markdown guides and logs in `workspace/` — you can watch the lab work in
 real time with nothing more than a text editor.
 
+## 60-second quickstart
+
+```bash
+# 1. Install (Python 3.11+; add [gui] for the desktop app)
+pip install paperfessor
+
+# 2. Store your LLM key (kept in the OS keychain, never on disk)
+paperfessor key set minimax --key "sk-..."   # or openai / anthropic / google
+
+# 3. Write a paper
+paperfessor run "anomaly detection in multivariate time series"
+```
+
+That's it — the three agents plan, survey, code, experiment, write, and
+self-inspect, then drop a venue-formatted PDF in `workspace/paper/body/`.
+
 ## Installation
 
 ```bash
-# Python 3.11+
-pip install -e ".[gui]"          # from a clone
-# or, once published:
-pip install paperfessor[gui]
+pip install paperfessor              # core
+pip install "paperfessor[gui]"       # + desktop GUI (PyQt6)
+pip install "paperfessor[gui,web]"   # + Playwright browsing for full-text
 ```
 
-LaTeX (TeX Live/MiKTeX with `acmart`) is recommended for PDF output; without
-it Paperfessor falls back to `.docx` (pandoc) or Markdown.
+From a clone (for development): `pip install -e ".[gui,web,dev]"`.
+
+**LaTeX** (TeX Live / MiKTeX / MacTeX with the `acmart` class) is recommended
+for PDF output; without it Paperfessor falls back to `.docx` (pandoc) or
+Markdown. Works on **Windows, macOS, and Linux**.
 
 ## First-time setup
 
@@ -161,7 +204,7 @@ paperfessor-gui                             # desktop app
 - **Only registered benchmark domains get experiments.** Currently:
   time-series anomaly detection (SMD, NAB). Other domains produce a paper
   with the experiment section honestly marked pending — extend
-  `src/research/datasets.py` to add your domain.
+  `paperfessor/research/datasets.py` to add your domain.
 
 ## Responsible use and disclaimer
 

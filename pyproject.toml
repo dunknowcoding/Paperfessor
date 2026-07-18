@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paperfessor"
-version = "0.4.0"
-description = "Multi-agent research direction -> top-innovation paper + runnable code project"
+version = "1.0.0"
+description = "Three-agent research assistant: a research direction in, a survey + real experiments + a venue-formatted paper out"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"

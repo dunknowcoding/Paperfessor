@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (unreleased)
+## 1.0.0 (2026-07-17)
 
 First public release. Paperfessor turns a one-sentence research
 direction into a survey, real experiments, and a venue-formatted PDF —

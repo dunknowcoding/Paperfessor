@@ -92,3 +92,8 @@ _trace*.log
 dist/
 build/
 output/
+
+# Development-only folders (root) — not part of the distributed package
+/tests/
+/scripts/
+/data/
