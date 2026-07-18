@@ -262,6 +262,163 @@ class PhDStudent(_WorkspaceAgent):
             "## Active run\n"
         )
 
+    # ---- Durable learning memory (doc_learn.md, PhD-only) ------------
+    #
+    # Unlike doc_memo / article_memo (per-run, cleared each paper),
+    # doc_learn is DURABLE: it accumulates distilled lessons across
+    # ALL runs and is never cleared by a reset. Only the PhD may add,
+    # search, combine, summarize, or prune it. It is consulted in
+    # every phase so the group's experience compounds over time.
+
+    # Suggested canonical categories (free-form; the PhD may add more).
+    LEARN_CATEGORIES: tuple[str, ...] = (
+        "venue-requirements",   # what venues want (page limits, appendix, format)
+        "paper-style",          # how papers for a venue/area are organized & written
+        "coordination-ms",      # working with the master's student
+        "coordination-ug",      # working with the undergraduate
+        "paper-writing",        # drafting / formatting / rendering lessons
+        "method-design",        # what worked / failed as a method
+        "experiments",          # data, protocol, evaluation lessons
+        "process",              # workflow / supervision lessons
+    )
+    _LEARN_MAX_PER_CATEGORY = 12
+    _LEARN_MAX_BYTES = 60_000
+
+    def _doc_learn_path(self) -> Path:
+        return self._workspace / "doc_learn.md"
+
+    def _doc_learn_header(self) -> str:
+        return (
+            "# doc_learn.md\n\n"
+            "> PhD's DURABLE learning memory. **Never cleared** — it "
+            "accumulates distilled lessons across every run.\n"
+            "> Only the PhD edits/searches/updates it. One concise line "
+            "per lesson: `- YYYY-MM-DD HH:MM | <conclusion>`, grouped by "
+            "category.\n"
+        )
+
+    def _slug_category(self, category: str) -> str:
+        c = re.sub(r"[^a-z0-9-]+", "-", (category or "").strip().lower()).strip("-")
+        return c or "process"
+
+    def _parse_learn(self) -> "dict[str, list[str]]":
+        """Read doc_learn.md into {category: [lines]} (order-preserving)."""
+        path = self._doc_learn_path()
+        out: dict[str, list[str]] = {}
+        if not path.is_file():
+            return out
+        cur = None
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"^##\s+(.+?)\s*$", raw)
+            if m:
+                cur = self._slug_category(m.group(1))
+                out.setdefault(cur, [])
+                continue
+            if cur and raw.strip().startswith("- "):
+                out[cur].append(raw.strip())
+        return out
+
+    def _write_learn(self, data: "dict[str, list[str]]") -> None:
+        parts = [self._doc_learn_header()]
+        for cat in sorted(data):
+            if not data[cat]:
+                continue
+            parts.append(f"\n## {cat}\n")
+            parts.extend(data[cat])
+        self._doc_learn_path().write_text(
+            "\n".join(parts).rstrip() + "\n", encoding="utf-8")
+
+    def learn(self, category: str, conclusion: str, *, ts: str | None = None) -> None:
+        """Record a distilled lesson under ``category`` (PhD-only).
+
+        The conclusion is a short, self-contained sentence. Near-
+        duplicates within a category are replaced (the newer wins),
+        and each category is capped so the memory stays compact.
+        """
+        conclusion = " ".join((conclusion or "").split()).strip()
+        if len(conclusion) < 4:
+            return
+        cat = self._slug_category(category)
+        stamp = ts or datetime.now().strftime("%Y-%m-%d %H:%M")
+        entry = f"- {stamp} | {conclusion[:300]}"
+        with self._lock:
+            data = self._parse_learn()
+            lines = data.setdefault(cat, [])
+            # Replace a near-duplicate (same leading words) instead of
+            # piling up. Both keys are stripped so the "| " separator's
+            # trailing space can't offset the 40-char comparison.
+            def _key(text: str) -> str:
+                return re.sub(r"[^a-z0-9 ]", "", text.strip().lower())[:40]
+            key = _key(conclusion)
+            lines[:] = [
+                l for l in lines if _key(l.split("|", 1)[-1]) != key
+            ]
+            lines.append(entry)
+            # Cap per category: keep the most recent N.
+            if len(lines) > self._LEARN_MAX_PER_CATEGORY:
+                del lines[: len(lines) - self._LEARN_MAX_PER_CATEGORY]
+            self._write_learn(data)
+            self._compact_learn_if_needed()
+
+    def recall_learnings(
+        self, query: str | None = None, *, category: str | None = None,
+        limit: int = 10,
+    ) -> list[str]:
+        """Search the learning memory (PhD-only).
+
+        Returns the conclusion lines matching ``category`` and/or the
+        word-overlap of ``query`` (most relevant first). With neither,
+        returns the most recent lessons across all categories.
+        """
+        data = self._parse_learn()
+        cats = [self._slug_category(category)] if category else list(data)
+        pool: list[str] = []
+        for c in cats:
+            for l in data.get(c, []):
+                pool.append(f"[{c}] {l.split('| ', 1)[-1]}")
+        if query:
+            qtokens = {t for t in re.findall(r"[a-z0-9]{3,}", query.lower())}
+            scored = sorted(
+                pool,
+                key=lambda l: len(qtokens & set(re.findall(r"[a-z0-9]{3,}", l.lower()))),
+                reverse=True,
+            )
+            pool = [l for l in scored
+                    if qtokens & set(re.findall(r"[a-z0-9]{3,}", l.lower()))] or scored
+        return pool[:limit]
+
+    def forget_learning(self, category: str, contains: str) -> int:
+        """Delete outdated lessons in ``category`` whose text contains
+        ``contains`` (PhD-only). Returns the number removed."""
+        cat = self._slug_category(category)
+        needle = (contains or "").lower()
+        removed = 0
+        with self._lock:
+            data = self._parse_learn()
+            before = len(data.get(cat, []))
+            data[cat] = [l for l in data.get(cat, []) if needle not in l.lower()]
+            removed = before - len(data.get(cat, []))
+            self._write_learn(data)
+        return removed
+
+    def _compact_learn_if_needed(self) -> None:
+        """Keep doc_learn.md under the size cap by trimming the oldest
+        lines from the largest categories."""
+        try:
+            path = self._doc_learn_path()
+            if not path.is_file() or path.stat().st_size <= self._LEARN_MAX_BYTES:
+                return
+            data = self._parse_learn()
+            # Drop the oldest line from the biggest categories until small.
+            while sum(len(l) for ls in data.values() for l in ls) > self._LEARN_MAX_BYTES:
+                biggest = max(data, key=lambda c: len(data[c]), default=None)
+                if not biggest or not data[biggest]:
+                    break
+                data[biggest].pop(0)
+            self._write_learn(data)
+        except Exception:  # noqa: BLE001
+            logger.exception("doc_learn compaction failed; continuing")
+
     # ---- Guide writes (PhD-only) -------------------------------------
 
     def update_research_guide(

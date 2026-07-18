@@ -314,6 +314,16 @@ def run(
         sup.stop()
         _cleanup_python_caches(workspace.parent, workspace)
         result.finished_at = datetime.now().isoformat(timespec="seconds")
+        # Durable learning: distill this attempt's outcome into the
+        # PhD's cross-run learning memory (method-design category).
+        try:
+            outcome = "succeeded" if result.status == "ok" else "failed"
+            lesson = f"{result.method or '(method)'} on '{direction}': {outcome}"
+            if result.note:
+                lesson += f" ({result.note[:120]})"
+            phd.learn("method-design", lesson)
+        except Exception:  # noqa: BLE001
+            logger.exception("doc_learn write failed; continuing")
         # Active review: log LLM usage so the user can see the model
         # is actually being used (per user standing order).
         try:
@@ -619,6 +629,19 @@ def _phd_review_workers(phd: PhDStudent, ms: MasterStudent, ug: Undergraduate) -
                 stage_goal="reports must match the artifacts they describe",
                 stage_complete=False,
             )
+            # Durable learning: coordination lessons from audit failures.
+            try:
+                if ms_audit.get("overstated"):
+                    phd.learn("coordination-ms",
+                              "MS can overstate reading (claimed > PDFs on disk); "
+                              "audit the read-count against src/papers.")
+                if not ug_audit.get("ok", True):
+                    phd.learn("coordination-ug",
+                              "UG report can mismatch results.json ("
+                              + "; ".join(ug_audit.get("issues", []))[:120]
+                              + "); verify metrics against the artifact.")
+            except Exception:  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001
         logger.exception("worker audit failed; continuing")
     for worker_name, worker in (("ms", ms), ("ug", ug)):
@@ -683,6 +706,17 @@ def _phase_plan(
     approaches — not a rebrand of an existing one.
     """
     phd.set_status(PhDStatus.PLANNING)
+    # Durable learning memory: recall distilled lessons relevant to
+    # this direction so planning benefits from every past run.
+    try:
+        learnings = phd.recall_learnings(query=direction, limit=6)
+    except Exception:  # noqa: BLE001
+        learnings = []
+    learnings_note = (
+        "\n\nLessons from your durable learning memory (apply them):\n"
+        + "\n".join(f"- {l}" for l in learnings)
+        if learnings else ""
+    )
     archived = phd.list_archived()
     # TOPIC ISOLATION: partition the archive into SAME-topic attempts
     # (authoritative prior art — skip/improve these) and OTHER-topic
@@ -846,7 +880,7 @@ def _phase_plan(
     text = _call_llm_with_retry(
         router, "innovator", "phd",
         system=system,
-        user=prompt, max_tokens=640, temperature=0.2,
+        user=prompt + learnings_note, max_tokens=640, temperature=0.2,
     )
     method = _parse_method(text) or _fallback_method(direction)
     # Soft-boundary adaptations are a DECLARED decision: whatever the
@@ -1132,6 +1166,44 @@ def _phase_survey(
         content=survey_md,
         task_ref="t1",
     )
+    # PAPER-STYLE STUDY (PhD dispatches, MS studies): learn how papers
+    # in this area/venue are organized and written — structure, tone,
+    # human phrasing, common wording — from the REAL papers just read,
+    # and record it in the durable learning memory so the WRITE phase
+    # can match the venue's conventions. Grounded in the collected
+    # sources (target venue if the user named one, else the corpus).
+    if papers:
+        try:
+            venue_hint = getattr(phd._settings, "target_venue", None) or "the target venue"
+            sample = "\n".join(
+                f"- {p.short_cite()} ({p.venue or '?'}): {p.title}"
+                for p in papers[:12]
+            )
+            style = _call_llm_with_retry(
+                router, "surveyor", "ms",
+                system=(
+                    "You are a master's student studying WRITING STYLE, not "
+                    "content. From the real papers below, distill how papers "
+                    "in this area are organized and written for their venue: "
+                    "section structure, tone, human (non-AI) phrasing, and "
+                    "conventional wording. Output 3-5 SHORT imperative style "
+                    "rules a co-author could follow (e.g. 'lead the intro with "
+                    "a concrete failure case', 'use we-active voice', 'report "
+                    "metrics as mean±CI in a booktabs table'). One per line, "
+                    "no preamble."
+                ),
+                user=(
+                    f"Target venue/area: {venue_hint} / {direction}\n\n"
+                    f"Representative papers:\n{sample}\n\nStyle rules:"
+                ),
+                max_tokens=400,
+            )
+            for line in (style or "").splitlines():
+                rule = line.strip().lstrip("-*0123456789. ").strip()
+                if len(rule) > 8:
+                    phd.learn("paper-style", f"[{venue_hint}/{direction[:30]}] {rule}")
+        except Exception:  # noqa: BLE001
+            logger.warning("paper-style study failed; continuing")
     ms.set_status(MasterStatus.IDLE)
     phd.append_doc_memo(
         user_request=direction,
@@ -1727,10 +1799,22 @@ def _phase_write(
         + (("\nTOPIC RULES (hard): " + "; ".join(topic_rules))
            if topic_rules else "")
     )
+    # Durable paper-style memory: how papers for this venue/area are
+    # organized and written (learned by the MS during the survey).
+    try:
+        style_rules = phd.recall_learnings(category="paper-style", limit=6)
+    except Exception:  # noqa: BLE001
+        style_rules = []
+    style_block = (
+        "\n\nVENUE WRITING STYLE (match these conventions):\n"
+        + "\n".join(f"- {s}" for s in style_rules)
+        if style_rules else ""
+    )
 
     def _writer_system(section_id: str) -> str:
         base = _section_system(section_id, direction, method)
-        return base + ("\n\n" + lessons if lessons else "") + facts_block
+        return (base + ("\n\n" + lessons if lessons else "")
+                + facts_block + style_block)
 
     # FULL-PAPER page discipline: unless the user asks for a short
     # paper, the body (excluding References/Appendix) must fill the
@@ -2234,6 +2318,16 @@ def _phase_write(
     #    use whatever class the PhD returns.
     try:
         venue = phd.detect_and_fetch_venue(direction)
+        # Durable learning: record what this venue requires.
+        try:
+            phd.learn(
+                "venue-requirements",
+                f"{venue.get('venue_name')}: page_limit={venue.get('page_limit')}, "
+                f"appendix_{'allowed' if venue.get('appendix_allowed', True) else 'NOT allowed (use supplementary)'}, "
+                f"class={venue.get('class_name')}",
+            )
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as exc:  # noqa: BLE001
         venue = {"venue_name": "Unknown", "class_name": "acmart-sigconf",
                  "class_source": "fallback", "page_limit": 9,
@@ -3386,21 +3480,23 @@ def _method_prompt(direction: str, method: str, evidence: list[Evidence],
             f"implemented and claim no capability beyond it. "
         )
     return (
-        f"Write the Method section (2-3 paragraphs, ~500-650 words MAX) "
-        f"for {method!r}. "
+        f"Write the Method section for {method!r}. "
         f"Describe the method concretely; include one figure described in "
         f"words. {fidelity}"
         f"Do NOT list evaluation datasets here (Section 4 "
         f"covers them); do NOT promise experiments on datasets that were "
-        f"not run. No fabricated numbers. BALANCE RULE (this is an "
-        f"EMPIRICAL paper — experiments and analysis must dominate the "
-        f"page budget, not theory): the main body carries ONLY the core "
-        f"formulation and the intuition a reader needs to follow the "
-        f"experiments (~1 page). Push ALL extended derivations, lemmas, "
-        f"proofs, complexity analysis, and secondary design variants into "
-        f"a trailing block titled '## Appendix A: Extended "
-        f"Derivations' at the END of your reply — it is routed out of "
-        f"the main pages automatically.\n\n{headline}"
+        f"not run. No fabricated numbers.\n"
+        f"BALANCE (you, the PhD, choose the ratio): decide how much theory "
+        f"this paper needs — a theory-forward paper can carry substantial "
+        f"formulation in the main body; an empirical paper keeps the method "
+        f"tight and lets experiments dominate. Size it to the contribution. "
+        f"What does NOT belong in the main body is GENUINELY tangential or "
+        f"overflow material — long routine derivations, auxiliary lemmas, "
+        f"exhaustive proofs, and secondary design variants: put those in a "
+        f"trailing block titled '## Appendix A: Extended Derivations' at the "
+        f"END of your reply (it is routed out of the main pages "
+        f"automatically). Keep in the body whatever a reader genuinely needs "
+        f"to understand and trust the method.\n\n{headline}"
     )
 
 
