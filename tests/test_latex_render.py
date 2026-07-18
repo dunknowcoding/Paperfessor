@@ -98,3 +98,17 @@ def test_stats_notation_escaped():
     d = chr(36)
     out2 = _md_inline_to_tex(f"the bound {d}x < y{d} holds")
     assert f"{d}x < y{d}" in out2
+
+
+def test_inequality_symbol_before_currency_no_collision():
+    # "BMI >= 25 or >= 30 ... $25" — the unicode >= must NOT be wrapped
+    # in $...$ (its closing $ collided with the currency guard and
+    # opened an unterminated math span, garbling the paragraph on a
+    # medical review, 2026-07-18). \ensuremath has no $.
+    import re
+    from paperfessor.research.latex import _md_inline_to_tex
+    d = chr(36)
+    out = _md_inline_to_tex(f"BMI ≥ 25 or ≥ 30 kg then {d}25 cost")
+    assert r"\ensuremath{\geq}" in out and "$" not in out.replace(r"\$", "")
+    # No long garbled math span.
+    assert not re.search(r"\$[^$]{30,}\$", out)

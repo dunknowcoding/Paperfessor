@@ -262,13 +262,19 @@ def _md_inline_to_tex(s: str) -> str:
     # Math-only commands must be wrapped in $...$ \u2014 bare \pm / \geq
     # in text mode force LaTeX into math mode and swallow the
     # following spaces (observed: caption "\u00b195%CIover3seeds").
-    s = s.replace("\u2265", r"$\geq$")
-    s = s.replace("\u2264", r"$\leq$")
-    s = s.replace("\u2260", r"$\neq$")
-    s = s.replace("\u00d7", r"$\times$")
+    # Math symbols use \ensuremath{...} (NOT $...$). Literal $ delimiters
+    # collide with the currency protection below: "$\geq$" immediately
+    # before a number ("\u2265 25") had its CLOSING $ grabbed as currency,
+    # breaking the math and opening an unterminated span that garbled the
+    # rest of the paragraph (medical review, "BMI \u2265 25 or \u2265 30 kg/m\u00b2").
+    # \ensuremath has no $ and works in both text and math mode.
+    s = s.replace("\u2265", r"\ensuremath{\geq}")
+    s = s.replace("\u2264", r"\ensuremath{\leq}")
+    s = s.replace("\u2260", r"\ensuremath{\neq}")
+    s = s.replace("\u00d7", r"\ensuremath{\times}")
     s = s.replace("\u2014", "---")
     s = s.replace("\u2013", "--")
-    s = s.replace("\u00b1", r"$\pm$")
+    s = s.replace("\u00b1", r"\ensuremath{\pm}")
     s = s.replace("\u2026", r"\ldots{}")
     # Protect CURRENCY before math-stashing. A ``$`` directly before a
     # number (``$5.15``, ``$1,000``, ``$ 7``) is a dollar amount, NOT a
