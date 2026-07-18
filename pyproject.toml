@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paperfessor"
-version = "1.0.0"
+version = "1.1.0"
 description = "Three-agent research assistant: a research direction in, a survey + real experiments + a venue-formatted paper out"
 readme = "README.md"
 license = "MIT"

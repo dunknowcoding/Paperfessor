@@ -1,5 +1,53 @@
 # Changelog
 
+## 1.1.0 (2026-07-18)
+
+Cross-discipline reliability, flexible models, and richer coordination.
+Validated end-to-end on review-goal papers in economics, social
+science, and medicine (all layout-clean, zero honesty defects) plus the
+CS experimental path.
+
+### Added
+
+- **Goal modes** (`paper_goal`): `sota` (default; iterate to beat the
+  baselines), `comparison`, `experiments`, `review`, `exploration`.
+  Only `sota` makes competitiveness a hard gate.
+- **Review structure**: literature-review papers get a survey layout
+  (Background, Thematic Synthesis, Discussion, Open Problems) with no
+  Method/Experiments; the code phase is skipped.
+- **Per-agent providers/models**: the PhD, Master's, and Undergraduate
+  can each use a different cloud or local provider and base URL, not
+  just a different model. Optional image-generation model config.
+- **Durable learning memory** (`doc_learn`, PhD-only): distilled,
+  categorized lessons that persist across runs and inform every phase,
+  including an `agent-capabilities` category and a team roster so the
+  PhD dispatches to each model's strengths.
+- **Coordination policy**: bounded method-improvement rounds, UG code
+  rounds, section redrafts, inspection rounds, and a per-run LLM budget
+  — all user-configurable; a campaign orchestrator with replan-keeps-
+  memory on exhaustion.
+- **Datasets**: private datasets (opt-in) with a must-use priority
+  list; gated public datasets record an actionable NEEDS_ACTION note
+  instead of failing.
+- **Cross-disciplinary sourcing**: Crossref added alongside
+  arXiv/OpenAlex/Scholar; MS skill documents venue-tier judgement and
+  discipline/region sources.
+- **No-capability-refusal guard**: a provider-neutral constraint plus
+  refusal detection so local models cannot decline tool-shaped tasks
+  (the program, not the model, performs search/download/file/code).
+
+### Fixed
+
+- LaTeX rendering across disciplines: currency `$` amounts, statistical
+  `<`/`>`, and unicode inequalities before numbers (`≥ 25 … $25`) no
+  longer garble the text or overflow the margin.
+- Every surveyed paper becomes a reference (journal papers without an
+  arXiv id/URL were dropped); references ordered by prestige.
+- No CS-experiment scaffolding or anomaly-detection citations leak into
+  non-CS papers; venue label shown only when confidently applicable.
+- OpenMP duplicate-runtime abort (OMP Error #15) guarded at import.
+- Topic isolation: same-topic vs cross-topic archive partition.
+
 ## 1.0.0 (2026-07-18)
 
 First public release. Paperfessor turns a one-sentence research
