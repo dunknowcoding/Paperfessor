@@ -128,6 +128,25 @@ class Settings(BaseSettings):
     ug_tool_timeout_seconds: int = Field(default=300, ge=10, le=3600)
     ug_extra_allowed_imports: str = ""   # comma-separated, e.g. "numba,jax"
 
+    # --- Datasets (access + private data; user-controlled) ----------------
+    # Public datasets that need a license click / login cannot be fetched
+    # unattended. ``dataset_license_mode`` controls what happens then:
+    #   "skip"   - skip the gated dataset, record a NEEDS_ACTION note,
+    #              continue with what IS accessible (default, non-blocking)
+    #   "prompt" - additionally write an explicit action request the user
+    #              must satisfy (place the file / provide credentials) and
+    #              re-run; nothing proceeds on that dataset until then
+    dataset_license_mode: Literal["skip", "prompt"] = "skip"
+
+    # Private datasets: OFF by default. When enabled, the UG may search
+    # and use datasets under ``private_datasets_dir`` (each subfolder is
+    # one dataset). ``must_use_datasets`` names private datasets the PhD
+    # MUST prioritize (treated as high-priority, always included when the
+    # direction admits experiments).
+    allow_private_datasets: bool = False
+    private_datasets_dir: str = ""
+    must_use_datasets: list[str] = Field(default_factory=list)
+
     # --- Paper goal -------------------------------------------------------
     # What the paper is FOR. Only "sota" makes competitiveness a hard
     # requirement (the PhD keeps improving/switching methods until the

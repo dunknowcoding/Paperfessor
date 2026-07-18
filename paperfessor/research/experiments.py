@@ -269,8 +269,13 @@ def run_experiments(
     proposed_name: str = "Proposed",
     seeds: tuple[int, ...] = (0, 1, 2),
     max_train_rows: int = 20000,
+    resolver=None,
 ) -> tuple[list[MetricRow], dict[str, dict]]:
     """Run all baselines (+ the proposed model if given) on each dataset.
+
+    ``resolver`` optionally maps a dataset name to its materialized
+    directory (used for private datasets); when None, public datasets
+    are fetched via the registry.
 
     Returns (rows, manifests). Rows for the proposed model carry an
     ``error`` when the model failed; the numbers of failed runs are
@@ -281,8 +286,16 @@ def run_experiments(
     rows: list[MetricRow] = []
     manifests: dict[str, dict] = {}
     for name in dataset_names:
-        info = ds.fetch(name, workspace)
-        dataset_dir = info.path
+        try:
+            if resolver is not None:
+                dataset_dir = resolver(name)
+            else:
+                dataset_dir = ds.fetch(name, workspace).path
+        except Exception as exc:  # noqa: BLE001
+            # Non-blocking: a gated/unavailable dataset is skipped (the
+            # note is recorded by the resolver) so the rest still run.
+            logger.warning("dataset %s unavailable, skipping: %s", name, exc)
+            continue
         train_x, test_x, test_y, manifest = _load_split(dataset_dir)
         manifests[name] = manifest
         # Cap the train size so a full sweep stays CPU-friendly.

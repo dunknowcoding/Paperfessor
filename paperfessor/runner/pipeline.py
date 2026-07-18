@@ -1274,6 +1274,43 @@ def _datasets_for_direction(direction: str) -> list[str]:
             return names
     return []
 
+
+def _select_experiment_datasets(
+    direction: str, settings: "Settings", workspace: Path,
+) -> tuple[list[str], set[str]]:
+    """Choose the datasets for this run's experiments.
+
+    Returns ``(names, private_names)``. Order of priority:
+      1. PhD ``must_use_datasets`` (high priority; always included when
+         private data is enabled and the folder holds them);
+      2. public domain benchmarks for the direction;
+      3. other fitting private datasets (the UG/PhD may use those that
+         match the direction).
+    Private datasets are only considered when the user enabled them.
+    """
+    public = list(_datasets_for_direction(direction))
+    private_names: set[str] = set()
+    if not getattr(settings, "allow_private_datasets", False):
+        return public, private_names
+    from paperfessor.research import private_datasets as pv
+    pdir = getattr(settings, "private_datasets_dir", "") or ""
+    available = set(pv.list_private(pdir))
+    must = [m for m in getattr(settings, "must_use_datasets", []) if m in available]
+    # Must-use first (high priority), then public, then any remaining
+    # private datasets whose name hints at the direction.
+    dtoks = set(re.findall(r"[a-z0-9]{3,}", direction.lower()))
+    fitting = [
+        n for n in sorted(available)
+        if n not in must
+        and (dtoks & set(re.findall(r"[a-z0-9]{3,}", n.lower())))
+    ]
+    private_names = set(must) | set(fitting)
+    ordered = must + public + fitting
+    # De-dup preserving order.
+    seen: set[str] = set()
+    result = [x for x in ordered if not (x in seen or seen.add(x))]
+    return result, private_names
+
 def _model_contract(gpu: bool) -> str:
     if gpu:
         compute_rules = (
@@ -1430,7 +1467,43 @@ def _phase_code(
                 workload_cells, _HEAVY_WORKLOAD_CELLS,
             )
 
-    experiment_datasets = _datasets_for_direction(direction)
+    experiment_datasets, _private_names = _select_experiment_datasets(
+        direction, ug._settings, ug.workspace)
+    # Private-dataset resolver: materialize user data into the standard
+    # split layout; public names fall through to the registry fetch.
+    _priv_dir = getattr(ug._settings, "private_datasets_dir", "") or ""
+
+    def _resolve(name: str) -> Path:
+        if name in _private_names:
+            from paperfessor.research import private_datasets as pv
+            return pv.prepare_private(name, ug.workspace, _priv_dir)
+        from paperfessor.research import datasets as _ds
+        try:
+            return _ds.fetch(name, ug.workspace).path
+        except Exception as exc:  # noqa: BLE001
+            # A gated public dataset (license/login/manual download) or a
+            # transient fetch failure: record a clear, actionable note so
+            # the user can satisfy it and re-run. Non-blocking: the run
+            # continues with the datasets it CAN access.
+            from paperfessor.research import private_datasets as pv
+            spec = None
+            try:
+                spec = _ds.get(name)
+            except Exception:  # noqa: BLE001
+                pass
+            pv.record_needs_action(
+                ug.workspace, name,
+                reason=f"could not fetch automatically: {str(exc)[:160]}",
+                instructions=(
+                    f"Obtain it from {getattr(spec, 'source_url', 'the official source')} "
+                    f"(accept any license / sign in if required) and place the "
+                    f"files under private data, or enable a mirror. "
+                    if getattr(ug._settings, "dataset_license_mode", "skip") == "prompt"
+                    else f"Source: {getattr(spec, 'source_url', 'unknown')}."
+                ),
+            )
+            raise
+
     if not experiment_datasets:
         # No benchmark with a compatible evaluation protocol is
         # registered for this domain. Report honestly and bail —
@@ -1479,8 +1552,11 @@ def _phase_code(
     model_path = code_dir / f"model_{safe_method}.py"
 
     # 1. Smoke-test fixture: a small slice of REAL data.
-    from paperfessor.research import datasets as ds_mod
-    smoke_info = ds_mod.fetch(experiment_datasets[0], ug.workspace)
+    smoke_dir = _resolve(experiment_datasets[0])
+
+    class _SmokeInfo:
+        path = smoke_dir
+    smoke_info = _SmokeInfo()
     import numpy as np
     smoke_train = smoke_info.path / "smoke_train.npy"
     smoke_test = smoke_info.path / "smoke_test.npy"
@@ -1589,6 +1665,7 @@ def _phase_code(
         proposed_model_path=model_path if model_ok else None,
         proposed_name=f"{method.split()[0] if method else 'Proposed'} (ours)",
         seeds=(0, 1, 2),
+        resolver=_resolve,
     )
     results_dir = ug.workspace / "src" / "results"
     save_results(rows, manifests, results_dir,
