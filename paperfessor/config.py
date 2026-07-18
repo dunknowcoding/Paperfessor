@@ -67,10 +67,30 @@ class Settings(BaseSettings):
     thinking_mode: bool = True
     disable_reasoning: bool = False
     fast_model: str | None = None
-    # Per-agent overrides (v0.4)
+    # Per-agent overrides. Each agent (PhD / MS / UG) may use a
+    # DIFFERENT provider (cloud or local) and model so the group draws
+    # on each model's strengths — e.g. a strong reasoner for the PhD, a
+    # cheap fast model for the UG, a local Ollama for privacy. When a
+    # per-agent provider/base_url is None the global provider/base_url
+    # is used; each agent's API key is read from the keychain for its
+    # own provider.
     phd_model: str = "MiniMax-M3"
     ms_model: str = "MiniMax-M3"
     ug_model: str = "MiniMax-M3"
+    phd_provider: ProviderName | None = None
+    ms_provider: ProviderName | None = None
+    ug_provider: ProviderName | None = None
+    phd_base_url: str | None = None
+    ms_base_url: str | None = None
+    ug_base_url: str | None = None
+
+    # Optional image-generation model (cloud, if the provider supports
+    # it). When set AND the provider can generate images, agents may
+    # render fancy figures / structural diagrams / decorative headers
+    # where suitable; otherwise the deterministic matplotlib figures
+    # are used. Empty = image generation off (default).
+    image_model: str | None = None
+    image_provider: ProviderName | None = None
 
     # --- Research ----------------------------------------------------------
     depth: Depth = Depth.NORMAL

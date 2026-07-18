@@ -276,6 +276,7 @@ class PhDStudent(_WorkspaceAgent):
         "paper-style",          # how papers for a venue/area are organized & written
         "coordination-ms",      # working with the master's student
         "coordination-ug",      # working with the undergraduate
+        "agent-capabilities",   # what each teammate's MODEL is good/bad at
         "paper-writing",        # drafting / formatting / rendering lessons
         "method-design",        # what worked / failed as a method
         "experiments",          # data, protocol, evaluation lessons

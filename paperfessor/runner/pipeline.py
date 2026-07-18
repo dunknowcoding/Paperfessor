@@ -174,6 +174,42 @@ def _slug_prefix(direction: str) -> str:
     return s[:20]
 
 
+def _agent_roster(phd: PhDStudent) -> str:
+    """Describe the team's models + recorded capabilities so the PhD
+    dispatches with awareness of each teammate's strengths/weaknesses.
+
+    The PhD records capability notes over time (e.g. "MS model X is
+    strong at synthesis, weak at numeric extraction") in the durable
+    ``agent-capabilities`` learning category; those notes are recalled
+    here alongside the live model/provider configuration.
+    """
+    s = phd._settings
+    def _who(group: str) -> str:
+        prov = getattr(s, f"{group}_provider", None) or getattr(s, "provider", None)
+        model = getattr(s, f"{group}_model", None) or getattr(s, "model", "?")
+        prov_s = getattr(prov, "value", str(prov)) if prov is not None else "?"
+        return f"{model} (provider={prov_s})"
+    try:
+        caps = phd.recall_learnings(category="agent-capabilities", limit=6)
+    except Exception:  # noqa: BLE001
+        caps = []
+    roster = (
+        "\n\nYour team (dispatch to each model's strengths):\n"
+        f"- Master's student (literature): {_who('ms')}\n"
+        f"- Undergraduate (code/experiments): {_who('ug')}\n"
+    )
+    if caps:
+        roster += ("Recorded capability notes:\n"
+                   + "\n".join(f"- {c}" for c in caps) + "\n")
+    roster += (
+        "When a teammate's model has a known weakness, compensate: split "
+        "the task, give tighter instructions, or verify its output more "
+        "closely. Record new capability observations to your "
+        "'agent-capabilities' learning memory."
+    )
+    return roster
+
+
 @dataclass
 class PipelineResult:
     direction: str
@@ -720,6 +756,10 @@ def _phase_plan(
         + "\n".join(f"- {l}" for l in learnings)
         if learnings else ""
     )
+    # Team awareness: the PhD should dispatch with knowledge of WHICH
+    # model each teammate runs and their recorded capabilities, so it
+    # plays to each model's strengths and around its weaknesses.
+    learnings_note += _agent_roster(phd)
     archived = phd.list_archived()
     # TOPIC ISOLATION: partition the archive into SAME-topic attempts
     # (authoritative prior art — skip/improve these) and OTHER-topic

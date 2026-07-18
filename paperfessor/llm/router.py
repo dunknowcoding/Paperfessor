@@ -229,9 +229,15 @@ class LLMRouter:
         except ImportError as exc:
             raise LLMError("litellm is not installed; run `pip install litellm`") from exc
 
-        provider = self._settings.provider
+        # Per-agent provider/base_url: each group (phd/ms/ug) may point
+        # at a different cloud or local module; falls back to the global.
+        provider = self._provider_for_group(group)
         api_key = get_api_key(provider.value)
-        kwargs = self._build_kwargs(provider, request, api_key, disable_thinking=disable_thinking)
+        base_url = self._base_url_for_group(group)
+        kwargs = self._build_kwargs(
+            provider, request, api_key, disable_thinking=disable_thinking,
+            base_url=base_url,
+        )
 
         try:
             response = litellm.completion(**kwargs)
@@ -293,6 +299,18 @@ class LLMRouter:
             except Exception:  # noqa: BLE001
                 logger.exception("usage observer raised; continuing")
 
+    def _provider_for_group(self, group: str) -> ProviderName:
+        """The provider for an agent group, falling back to the global."""
+        field = f"{group}_provider" if group in ("phd", "ms", "ug") else ""
+        val = getattr(self._settings, field, None) if field else None
+        return val if val is not None else self._settings.provider
+
+    def _base_url_for_group(self, group: str) -> str | None:
+        """The base_url for an agent group, falling back to the global."""
+        field = f"{group}_base_url" if group in ("phd", "ms", "ug") else ""
+        val = getattr(self._settings, field, None) if field else None
+        return val if val else self._settings.base_url
+
     def _build_kwargs(
         self,
         provider: ProviderName,
@@ -300,6 +318,7 @@ class LLMRouter:
         api_key: str | None,
         *,
         disable_thinking: bool = False,
+        base_url: str | None = None,
     ) -> dict[str, Any]:
         messages = [{"role": m.role.value, "content": m.content} for m in request.messages]
         kwargs: dict[str, Any] = {
@@ -311,17 +330,19 @@ class LLMRouter:
             kwargs["max_tokens"] = request.max_tokens
         if api_key:
             kwargs["api_key"] = api_key
-        if self._settings.base_url:
-            kwargs["api_base"] = self._settings.base_url
+        effective_base = base_url if base_url is not None else self._settings.base_url
+        if effective_base:
+            kwargs["api_base"] = effective_base
         kwargs["timeout"] = self._settings.request_timeout_seconds
-        # Thinking-mode wiring. MiniMax-M3 accepts "adaptive" or
-        # "disabled". Per-call disable_thinking wins over the
-        # project default.
-        thinking_on = bool(getattr(self._settings, "thinking_mode", True))
-        if disable_thinking or not thinking_on or bool(getattr(self._settings, "disable_reasoning", False)):
-            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
-        else:
-            kwargs["extra_body"] = {"thinking": {"type": "adaptive"}}
+        # Thinking-mode wiring is MiniMax-specific (extra_body.thinking).
+        # Only send it to MiniMax — other providers (OpenAI, Anthropic,
+        # Ollama, ...) reject an unknown extra_body field.
+        if provider == ProviderName.MINIMAX:
+            thinking_on = bool(getattr(self._settings, "thinking_mode", True))
+            if disable_thinking or not thinking_on or bool(getattr(self._settings, "disable_reasoning", False)):
+                kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+            else:
+                kwargs["extra_body"] = {"thinking": {"type": "adaptive"}}
         return kwargs
 
     def _model_string(self, provider: ProviderName, model: str) -> str:
