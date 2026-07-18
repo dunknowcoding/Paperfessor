@@ -263,6 +263,14 @@ def _md_inline_to_tex(s: str) -> str:
     s = s.replace("\u2013", "--")
     s = s.replace("\u00b1", r"$\pm$")
     s = s.replace("\u2026", r"\ldots{}")
+    # Protect CURRENCY before math-stashing. A ``$`` directly before a
+    # number (``$5.15``, ``$1,000``, ``$ 7``) is a dollar amount, NOT a
+    # math delimiter. Economics/finance/business prose is full of these;
+    # without this, ``$1.60 ... $2.30`` gets paired as inline math and
+    # the whole passage renders as garbled run-together math that
+    # overflows the margin. Replace with a sentinel restored to ``\$``
+    # AFTER escaping (so the backslash is not itself escaped).
+    s = re.sub(r"\$(?=\s?[\d])", "\x00DOLLAR\x00", s)
     # Preserve inline math $...$ so the inner $ is not escaped.
     math_segments: list[str] = []
 
@@ -291,6 +299,8 @@ def _md_inline_to_tex(s: str) -> str:
         idx = int(m.group(1))
         return math_segments[idx]
     s = re.sub(r"\x00M(\d+)\x00m", restore_math, s)
+    # Restore protected currency as an escaped literal dollar.
+    s = s.replace("\x00DOLLAR\x00", r"\$")
     return s
 
 

@@ -71,3 +71,17 @@ def test_underscores_escaped_in_text_mode(tmp_path: Path):
     tex = write_tex(md, tmp_path, class_name="acmart-sigconf").read_text(encoding="utf-8")
     assert "x_i" not in tex.replace("x\\_i", "")
     assert "x\\_i" in tex and "x\\_t" in tex
+
+
+def test_currency_dollar_not_treated_as_math():
+    # Economics/finance prose is full of $ amounts; pairing them as
+    # inline math garbled the passage and overflowed the margin
+    # (observed on an economics review, 2026-07-18).
+    from paperfessor.research.latex import _md_inline_to_tex
+    d = chr(36)
+    out = _md_inline_to_tex(
+        f"wages rose from {d}1.60 in 1968 to {d}7.25 today")
+    assert r"\$1.60" in out and r"\$7.25" in out
+    # Real inline math is still preserved, even next to currency.
+    out2 = _md_inline_to_tex(f"a {d}5 floor and a rate {d}x{d} variable")
+    assert r"\$5" in out2 and f"{d}x{d}" in out2
