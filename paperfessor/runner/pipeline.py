@@ -90,10 +90,10 @@ class CoordinationPolicy:
     """
 
     max_method_rounds: int = 3
-    max_ug_rounds: int = 4
+    max_ug_rounds: int = 5
     max_section_redrafts: int = 1
     max_inspection_rounds: int = 3
-    max_llm_calls: int = 80
+    max_llm_calls: int = 85
 
 
 POLICY = CoordinationPolicy()
@@ -1116,7 +1116,14 @@ def _model_contract(gpu: bool) -> str:
         "- no file I/O, no network access, no prints, no __main__ block\n"
         "- deterministic given the seed; all randomness through np.random.default_rng(seed)\n"
         "- handle both multivariate (d=38) and univariate (d=1) input\n"
-        "- scores must be finite floats, one per test row\n"
+        "- scores must be finite floats — return EXACTLY ONE score per "
+        "test ROW: len(score(test_x)) == test_x.shape[0], ALWAYS.\n"
+        "  WINDOWING: if you score over sliding windows, you MUST map "
+        "window scores back to per-timestep scores of length "
+        "test_x.shape[0] (e.g. assign each timestep the max/mean of the "
+        "windows covering it, and pad the edges) — never return a "
+        "per-window array of a different length. This is the #1 cause "
+        "of failure; get the output length exactly right.\n"
         "Return ONLY a single ```python code block, nothing after it."
     )
 
@@ -1354,6 +1361,22 @@ def _phase_code(
         except (ModelRunError, Exception) as exc:  # noqa: BLE001
             feedback = str(exc)[:1500]
             first_line = feedback.strip().splitlines()[-1][:160] if feedback.strip() else "?"
+            low = feedback.lower()
+            # Targeted hints for the recurring failure classes so the
+            # LLM fixes the actual bug instead of thrashing.
+            if ("broadcast" in low or "shape" in low
+                    or "could not broadcast" in low):
+                feedback += (
+                    "\n\nHINT: this is an OUTPUT-LENGTH bug. score(test_x) "
+                    "MUST return exactly test_x.shape[0] values. You are "
+                    "returning a per-window array of a different length. "
+                    "Map window scores back to per-timestep: allocate "
+                    "out = np.zeros(test_x.shape[0]); for each window "
+                    "assign its score to the timesteps it covers "
+                    "(np.maximum.at or averaging); pad any uncovered "
+                    "edge timesteps with the nearest score. Verify "
+                    "len(out) == test_x.shape[0] before returning."
+                )
             rounds.append(f"round {attempt + 1}: smoke run failed ({first_line})")
             continue
         rounds.append(

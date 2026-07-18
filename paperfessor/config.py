@@ -132,10 +132,10 @@ class Settings(BaseSettings):
     # Bounds for every agent loop. Defaults favor quality on cloud
     # APIs; lower them for cheaper/faster runs.
     max_method_rounds: int = Field(default=3, ge=1, le=10)
-    max_ug_rounds: int = Field(default=4, ge=1, le=10)
+    max_ug_rounds: int = Field(default=5, ge=1, le=10)
     max_section_redrafts: int = Field(default=1, ge=0, le=5)
     max_inspection_rounds: int = Field(default=3, ge=1, le=10)
-    max_llm_calls: int = Field(default=80, ge=5, le=1000)
+    max_llm_calls: int = Field(default=85, ge=5, le=1000)
 
     # --- v0.4: workspace ----------------------------------------------------
     auto_bootstrap_workspace: bool = True
