@@ -286,8 +286,11 @@ def run(
         # and decides continue / add_more / pause / stop. The
         # recommendation is persisted to doc_memo.
         _phd_review_workers(phd, ms, ug)
-        _phase_code(phd, ug, router, direction, method, budgets["code"])
-        _phd_review_workers(phd, ms, ug)
+        # A literature review has no computational experiment — skip the
+        # code phase entirely (the write phase uses a review structure).
+        if getattr(settings, "paper_goal", "sota") != "review":
+            _phase_code(phd, ug, router, direction, method, budgets["code"])
+            _phd_review_workers(phd, ms, ug)
         paper_path = _phase_write(phd, router, direction, method, budgets["write"], ms=ms, ug=ug)
         result.paper_path = str(paper_path) if paper_path else None
         _sota = getattr(settings, "paper_goal", "sota") == "sota"
@@ -1508,22 +1511,27 @@ def _phase_code(
         # No benchmark with a compatible evaluation protocol is
         # registered for this domain. Report honestly and bail —
         # running an off-domain experiment would bias the paper.
+        # `not_applicable` (NOT `failed`): a topic with no registered
+        # benchmark is not a UG failure — it is a paper without a
+        # computational experiment (review, theory, non-CS empirical).
+        # The write phase then uses a no-results structure honestly,
+        # rather than being forced into a provisional/fallback draft.
         ug.write_code_log(
             subject=f"Experiments for {method}",
             content=(
-                "model_status: failed\n"
+                "model_status: not_applicable\n"
                 f"reason: no registered benchmark dataset matches the "
-                f"direction {direction!r}; refusing to run an off-domain "
-                f"experiment. Register a dataset + protocol for this "
-                f"domain first."
+                f"direction {direction!r}; this paper has no computational "
+                f"experiment. The write phase reports results as not "
+                f"applicable rather than fabricating any."
             ),
             task_ref="t1",
         )
         phd.append_doc_memo(
             user_request=method, method=method, stage="code",
-            ug_summary="no runnable benchmark for this domain; experiments skipped honestly",
-            ms_summary="(none)", interaction_ug="dispatch aborted", interaction_ms="(none)",
-            stage_goal="no — domain has no registered benchmark",
+            ug_summary="no runnable benchmark for this domain; experiments not applicable",
+            ms_summary="(none)", interaction_ug="no experiment dispatched", interaction_ms="(none)",
+            stage_goal="honest: this paper has no computational experiment",
             stage_complete=True,
         )
         return
@@ -1762,6 +1770,103 @@ def _phase_code(
     phd.update_code_guide(tasks)
 
 
+def _section_plan(
+    goal: str, has_results: bool, direction: str, method: str,
+    evidence: list[Evidence], workspace: Path,
+) -> list[tuple[str, str, str, int]]:
+    """Choose the paper's section structure for the goal + evidence.
+
+    - ``review``: a literature-review structure (no Method/Experiments);
+      the contribution is synthesis, not a proposed method.
+    - experimental goals WITH measured results: the empirical structure
+      (Method, Experimental Setup, Analysis).
+    - experimental goals WITHOUT results (e.g. a non-CS topic with no
+      registered benchmark): a study-design structure that never
+      fabricates datasets or metrics.
+    """
+    ev = evidence
+    ws = workspace
+    if goal == "review":
+        n = len(ev)
+        return [
+            ("abstract", "Abstract",
+             f"Write a 150-220 word abstract for a LITERATURE REVIEW on "
+             f"{direction!r}. State the scope, the number of works "
+             f"synthesized ({n}), the main themes, and the key open "
+             f"questions. No proposed method, no fabricated numbers.", 700),
+            ("intro", "1. Introduction",
+             f"Write the Introduction (3-4 paragraphs) of a review on "
+             f"{direction!r}: why the topic matters, the review's scope "
+             f"and questions, and the organization. Cite surveyed works "
+             f"(author-year) you actually have. End with the review's "
+             f"guiding questions as a short list.", 2000),
+            ("background", "2. Background",
+             f"Write a Background section establishing the concepts, "
+             f"definitions, and historical context a reader needs for "
+             f"{direction!r}. Ground every claim in a cited work.", 1800),
+            ("themes", "3. Thematic Synthesis",
+             f"This is the CORE of the review. Organize the {n} surveyed "
+             f"works into 3-4 thematic clusters. For each theme: the "
+             f"central question, the main findings, the points of "
+             f"agreement and disagreement, and the strength of evidence. "
+             f"Cite every work by author-year. No fabricated numbers — "
+             f"report only figures a cited work actually states.", 3000),
+            ("discussion", "4. Discussion",
+             f"Discuss the cross-cutting tensions the synthesis reveals: "
+             f"where the literature converges, where it conflicts, what "
+             f"methodological limitations recur, and what the balance of "
+             f"evidence implies for {direction!r}.", 2200),
+            ("openproblems", "5. Open Problems and Future Directions",
+             f"Identify the concrete open problems the review exposes and "
+             f"the most promising future directions, each tied to a gap "
+             f"in the synthesized literature.", 1600),
+            ("conclusion", "6. Conclusion",
+             f"Write a 1-paragraph conclusion summarizing what the review "
+             f"of {n} works establishes and the single most important "
+             f"open question.", 700),
+        ]
+    # Experimental structures.
+    empirical_results = has_results
+    plan: list[tuple[str, str, str, int]] = [
+        ("abstract", "Abstract", _abstract_prompt(direction, method, ev, ws), 700),
+        ("intro", "1. Introduction", _intro_prompt(direction, method, ev, ws), 2000),
+        ("related", "2. Related Work", _related_prompt(direction, method, ev), 2200),
+        ("method", "3. Method", _method_prompt(direction, method, ev, ws), 2600),
+    ]
+    if empirical_results:
+        plan += [
+            ("experiments", "4. Experimental Setup",
+             _experiments_prompt(direction, method, ev, ws), 3000),
+            ("analysis", "5. Analysis and Discussion",
+             _analysis_prompt(direction, method, ev, ws), 2600),
+            ("conclusion", "6. Conclusion",
+             _conclusion_prompt(direction, method, ev, ws), 700),
+            ("limitations", "7. Limitations and Future Work",
+             _limitations_prompt(direction, method, ev, ws), 800),
+        ]
+    else:
+        # No measured results: a study-design + discussion structure
+        # that states plainly that empirical results are pending and
+        # NEVER fabricates datasets, metrics, or numbers.
+        plan += [
+            ("studydesign", "4. Study Design",
+             f"Write a Study Design section for {method!r} on {direction!r}. "
+             f"Describe the proposed evaluation: what data would be used "
+             f"(named only if genuinely applicable to this field — do NOT "
+             f"invent dataset names), what would be measured, and the "
+             f"protocol. State explicitly that empirical results are not "
+             f"yet reported. No fabricated numbers.", 2200),
+            ("discussion", "5. Discussion",
+             f"Discuss the expected strengths and risks of {method!r}, "
+             f"grounded in the surveyed literature. No fabricated results.", 2000),
+            ("conclusion", "6. Conclusion",
+             _conclusion_prompt(direction, method, ev, ws), 700),
+            ("limitations", "7. Limitations and Future Work",
+             _limitations_prompt(direction, method, ev, ws), 800),
+        ]
+    return plan
+
+
 def _phase_write(
     phd: PhDStudent, router: LLMRouter,
     direction: str, method: str, budget: float,
@@ -1899,17 +2004,12 @@ def _phase_write(
     # budgets and word targets are sized for that goal; an expansion
     # loop after the first PDF build tops up under-filled papers.
     page_target = int(getattr(phd._settings, "paper_max_pages", 9) or 9)
+    goal = getattr(phd._settings, "paper_goal", "sota")
+    has_results = (phd.workspace / "src" / "results" / "results.json").is_file()
+    section_plan = _section_plan(goal, has_results, direction, method,
+                                 evidence, phd.workspace)
     sections: list[tuple[str, str]] = []
-    for section_id, title, user_prompt, max_tokens in [
-        ("abstract", "Abstract", _abstract_prompt(direction, method, evidence, phd.workspace), 700),
-        ("intro", "1. Introduction", _intro_prompt(direction, method, evidence, phd.workspace), 2000),
-        ("related", "2. Related Work", _related_prompt(direction, method, evidence), 2200),
-        ("method", "3. Method", _method_prompt(direction, method, evidence, phd.workspace), 2600),
-        ("experiments", "4. Experimental Setup", _experiments_prompt(direction, method, evidence, phd.workspace), 3000),
-        ("analysis", "5. Analysis and Discussion", _analysis_prompt(direction, method, evidence, phd.workspace), 2600),
-        ("conclusion", "6. Conclusion", _conclusion_prompt(direction, method, evidence, phd.workspace), 700),
-        ("limitations", "7. Limitations and Future Work", _limitations_prompt(direction, method, evidence, phd.workspace), 800),
-    ]:
+    for section_id, title, user_prompt, max_tokens in section_plan:
         if readiness.force_provisional_write:
             text = _section_fallback(section_id, direction, method, evidence)
             section_source = "fallback"
@@ -2238,7 +2338,17 @@ def _phase_write(
     # (searched live, never fabricated) when the survey alone leaves
     # the list thin; the citation resolver adds more during
     # self-inspection as the body cites them.
-    if ref_count < 28:
+    # The canonical top-up is TS-anomaly-specific; injecting it into a
+    # non-CS paper (economics, social science, ...) would add off-topic
+    # references. Gate it behind the anomaly/time-series domain — other
+    # domains keep whatever the survey found rather than fabricating
+    # cross-discipline citations.
+    _ad_domain = any(
+        k in direction.lower()
+        for k in ("anomaly", "outlier", "time series", "time-series",
+                  "temporal", "intrusion", "fault detection")
+    )
+    if ref_count < 28 and _ad_domain:
         from paperfessor.research.sources.arxiv import search as _ax_search
         canonical_titles = [
             "Anomaly Transformer Time-Series Association Discrepancy",
