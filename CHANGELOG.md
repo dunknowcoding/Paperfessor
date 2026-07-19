@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.2.0 (2026-07-18)
+
+Smarter cognition, article-type flexibility, and cross-discipline
+robustness, validated across multiple rounds of real end-to-end
+generation (experimental CS papers, reviews in economics / social
+science / medicine / law, technical reports, and creative fiction).
+
+### Added
+
+- **Article types** (`paper_goal`): alongside `sota` / `comparison` /
+  `experiments` / `review` / `exploration`, two new types with
+  structure and scaffolding suited to the work:
+  - `technical_report` — Executive Summary, Background, System Design,
+    Implementation, Evaluation/Validation, Conclusion; planned from a
+    concrete engineering approach, not a research method.
+  - `creative` — chaptered narrative prose with NO abstract, references,
+    venue label, survey, or experiments; planned from a narrative
+    framing (genre / voice / device).
+- **More creative, self-critical PhD**: the innovation step reasons from
+  first principles, names the strongest objection to its own idea, and
+  writes in a natural human voice.
+- **Durable, token-bounded memory**: recalled short/long memory is
+  capped to a fixed prompt budget so accumulated learnings never inflate
+  input length; a run-end reflection distills each attempt into the
+  learning memory.
+- **Theory-derived limitations**: the Limitations section is grounded in
+  the specific assumption the proposed method bakes in, not a template.
+
+### Fixed
+
+- LaTeX robustness across disciplines: breakable body and reference URLs
+  (`\url{}` + xurl), shrink-to-fit long display equations, title-page
+  paragraph-gap calibration.
+- The METHOD parser accepts markdown/bullet/dash-wrapped labels, so
+  strong creative proposals are used instead of weak keyword fallbacks.
+- Goal-aware readiness + defect scan: creative writing is judged on the
+  prose rendering, not academic gates it does not have.
+
 ## 1.1.0 (2026-07-18)
 
 Cross-discipline reliability, flexible models, and richer coordination.
