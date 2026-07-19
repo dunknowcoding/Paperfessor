@@ -259,13 +259,27 @@ class RunReadiness:
     # (comparison / experiments / review / exploration) accept an
     # honestly-reported result without a SOTA win.
     sota_mode: bool = True
+    # The article type. Creative writing has no survey / experiments /
+    # references, so the academic readiness checks do not apply — only
+    # that the prose actually rendered.
+    goal: str = "sota"
 
     @property
     def force_provisional_write(self) -> bool:
+        if self.goal == "creative":
+            return False
         return self.survey_blocked or self.code_fallback or self.placeholder_metric
 
     def issues(self) -> list[str]:
         out: list[str] = []
+        if self.goal == "creative":
+            # Creative writing: the only failure is that the chapters
+            # did not render to a PDF.
+            if self.visual_ok is False:
+                out.append("the rendered chapters did not pass layout inspection")
+            if self.pdf_missing:
+                out.append("no rendered PDF (the build failed)")
+            return out
         if self.readable_papers < 3:
             out.append(f"survey only extracted {self.readable_papers} readable papers")
         if self.survey_blocked:
@@ -353,7 +367,8 @@ def run(
         paper_path = _phase_write(phd, router, direction, method, budgets["write"], ms=ms, ug=ug)
         result.paper_path = str(paper_path) if paper_path else None
         _sota = getattr(settings, "paper_goal", "sota") == "sota"
-        readiness = _assess_run_readiness(workspace, paper_path, sota_mode=_sota)
+        readiness = _assess_run_readiness(
+            workspace, paper_path, sota_mode=_sota, goal=goal)
         if readiness.issues():
             result.status = "failed"
             result.note = "; ".join(readiness.issues())
@@ -786,6 +801,30 @@ def _phase_plan(
     approaches — not a rebrand of an existing one.
     """
     phd.set_status(PhDStatus.PLANNING)
+    # Creative writing does not have a research "method": the plan is a
+    # narrative framing (genre / voice / central device). Ask for that
+    # instead of a scientific method so the story is not built around a
+    # physics detector.
+    if getattr(phd._settings, "paper_goal", "sota") == "creative":
+        framing = _call_llm_with_retry(
+            router, "innovator", "phd",
+            system=(
+                "You are an imaginative author planning a piece of creative "
+                "writing. Given a premise, choose a narrative framing in a "
+                "natural voice — NOT a research method. Reply on one line: "
+                "FRAMING: <genre + point of view + central device, max 10 words>"
+            ),
+            user=f"Premise: {direction}\nGive the FRAMING line only.",
+            max_tokens=120, temperature=0.7,
+        )
+        m = re.search(r"FRAMING:\s*(.+)$", framing, re.I | re.M)
+        framing_name = (m.group(1).strip()[:80] if m
+                        else f"literary short story: {direction[:40]}")
+        phd.append_doc_memo(
+            user_request=direction, method=framing_name, stage="plan",
+            stage_goal="creative framing chosen", stage_complete=True,
+            lessons=f"Creative framing: {framing_name}")
+        return framing_name
     # Durable learning memory: recall distilled lessons relevant to
     # this direction so planning benefits from every past run.
     try:
@@ -4334,6 +4373,7 @@ def _section_fallback(
 
 def _assess_run_readiness(
     workspace: Path, paper_path: Path | None, *, sota_mode: bool = True,
+    goal: str = "sota",
 ) -> RunReadiness:
     research_log = (workspace / "shared" / "research_log.md").read_text(encoding="utf-8") \
         if (workspace / "shared" / "research_log.md").is_file() else ""
@@ -4401,6 +4441,7 @@ def _assess_run_readiness(
         pdf_missing=pdf_missing,
         method_uncompetitive=method_uncompetitive,
         sota_mode=sota_mode,
+        goal=goal,
     )
 
 
