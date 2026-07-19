@@ -740,8 +740,15 @@ def write_tex(
             tex += "\n\\balance\n"
         tex += "\n\\begin{thebibliography}{99}\n"
         for i, r in enumerate(refs, 1):
-            entry = re.sub(r"\*([^*]+)\*", r"\\emph{\1}", r)
-            entry = re.sub(r"\[(\d+)\]\(([^)]+)\)", r"\\url{\2}", entry)
+            entry = re.sub(r"\[(\d+)\]\(([^)]+)\)", r"\\url{\2}", r)
+            # Bare reference URLs (long DOIs / Google Books links) do not
+            # line-break and overflow the column — wrap them in breakable
+            # \url{} FIRST (before italic), keeping trailing punctuation
+            # outside. Skip URLs already inside a \url{...}.
+            entry = re.sub(
+                r"(?<!\{)(https?://[^\s\}]+?)([.,;]?)(?=\s|$)",
+                lambda m: r"\url{" + m.group(1) + "}" + m.group(2), entry)
+            entry = re.sub(r"\*([^*]+)\*", r"\\emph{\1}", entry)
             tex += f"\\bibitem{{r{i}}} {entry}\n"
         tex += "\\end{thebibliography}\n"
     tex += NEURIPS_TAIL if class_name == "acmart-sigconf" else r"\end{document}" + "\n"
