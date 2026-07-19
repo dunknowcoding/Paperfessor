@@ -174,6 +174,25 @@ def _slug_prefix(direction: str) -> str:
     return s[:20]
 
 
+def _bounded_memory(text: str, *, max_chars: int = 2400) -> str:
+    """Cap an injected memory block so recalled short/long memory never
+    inflates the prompt token budget. Keeps whole leading lines up to
+    the budget and appends a compaction marker when it trims — memory
+    must stay a small, fixed cost regardless of how much has
+    accumulated over many runs.
+    """
+    if not text or len(text) <= max_chars:
+        return text or ""
+    kept: list[str] = []
+    used = 0
+    for line in text.splitlines():
+        if used + len(line) + 1 > max_chars:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    return "\n".join(kept) + "\n  (older memory omitted to bound the prompt)"
+
+
 def _agent_roster(phd: PhDStudent) -> str:
     """Describe the team's models + recorded capabilities so the PhD
     dispatches with awareness of each teammate's strengths/weaknesses.
@@ -391,6 +410,24 @@ def run(
                     f"Note: {result.note or '-'}"
                 ),
             )
+        # Self-evolution: a concise, durable reflection so the next run
+        # starts wiser. One line, distilled — the outcome and the single
+        # most useful lesson for a future attempt on this direction.
+        try:
+            if result.status == "ok":
+                lesson = (
+                    f"{result.method[:60]} worked on '{direction[:40]}' — "
+                    f"reuse this mechanism; try to strengthen it further."
+                )
+            else:
+                cause = (result.note or "unknown").split(";")[0][:80]
+                lesson = (
+                    f"{result.method[:60]} did not pass on '{direction[:40]}' "
+                    f"(cause: {cause}); avoid this failure mode next time."
+                )
+            phd.learn("method-design", lesson)
+        except Exception:  # noqa: BLE001
+            logger.warning("run-end reflection failed; continuing")
 
     # 3. Persist the run to the SQLite memory (best-effort: never
     #    fail the pipeline on a memory error). The PhD is the only
@@ -906,24 +943,31 @@ def _phase_plan(
     # the LLM returns empty when the system is short and the user is
     # long; padding the system to ~1 KB is a reliable workaround.
     system = (
-        "You are a research PhD leading a small group (one master's student, "
-        "one undergraduate) on a top-venue ML paper. Your job right now is "
-        "the INNOVATION step: given a research direction and the archive of "
-        "prior attempts, propose ONE concrete method to try next. "
-        f"{goal_note} The method "
-        "must be: (1) specific enough to be implementable in 1-2 weeks by "
-        "the UG, (2) novel relative to the archive, and (3) defensible at a "
-        "top venue (NeurIPS / ICML / ICLR / KDD / ACL / CVPR tier). The MS "
-        "will survey the related work after you pick; the UG will implement "
-        "after the survey. So: pick something with real prior art to read, "
-        "not pure speculation. Be terse. Do not propose anything already "
-        "tried. Output the METHOD / WHY / FIRST-STEP block exactly as "
-        "asked; do not wrap in Markdown."
+        "You are a creative, critical research scientist leading a small "
+        "group (one master's student, one undergraduate). Think like a real "
+        "researcher, not a template: reason from FIRST PRINCIPLES about why "
+        "existing approaches fall short, what assumption each of them bakes "
+        "in, and where a different assumption would open a genuinely new "
+        "mechanism. Your job right now is the INNOVATION step: given a "
+        "research direction and the archive of prior attempts, DEDUCE and "
+        "propose ONE concrete method to try next. "
+        f"{goal_note} Be intellectually honest and self-critical: name the "
+        "strongest objection to your own idea and why it still merits a "
+        "try. The method must be (1) implementable in 1-2 weeks by the UG, "
+        "(2) a real conceptual advance — a new inductive bias, objective, "
+        "representation, or identification strategy, not a relabel of prior "
+        "work, and (3) defensible at a leading venue in the field. The MS "
+        "surveys after you pick; the UG implements after the survey — so "
+        "pick something with real prior art to read, not pure speculation. "
+        "Write in a natural human voice, not marketing language; avoid "
+        "hype words. Do not propose anything already tried. Output the "
+        "METHOD / WHY / DIFFERS-FROM / FIRST-STEP block exactly as asked; "
+        "do not wrap in Markdown."
     )
     text = _call_llm_with_retry(
         router, "innovator", "phd",
         system=system,
-        user=prompt + learnings_note, max_tokens=640, temperature=0.2,
+        user=prompt + _bounded_memory(learnings_note), max_tokens=720, temperature=0.35,
     )
     method = _parse_method(text) or _fallback_method(direction)
     # Soft-boundary adaptations are a DECLARED decision: whatever the

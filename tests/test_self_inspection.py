@@ -269,3 +269,15 @@ def test_reassemble_round_trip():
     assert "## Abstract" in md and "body B" in md
     assert "![f](figures/x.png)" in md
     assert md.index("## References") > md.index("body B")
+
+
+def test_bounded_memory_caps_prompt_cost():
+    from paperfessor.runner.pipeline import _bounded_memory
+    small = "line one\nline two"
+    assert _bounded_memory(small) == small  # under budget: unchanged
+    big = "\n".join(f"lesson {i}: " + "x" * 60 for i in range(200))
+    out = _bounded_memory(big, max_chars=500)
+    assert len(out) <= 600  # bounded (+ marker)
+    assert "older memory omitted" in out
+    # keeps whole leading lines
+    assert out.startswith("lesson 0:")
