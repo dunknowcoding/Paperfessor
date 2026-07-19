@@ -346,15 +346,17 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
                     f"para_gap_too_far={para_too_far}/{para_total} "
                     f"({far_frac:.0%}) > {_PARA_FAR_TOO_MANY:.0%}"
                 )
-        # First and last pages are legitimately sparser (title block,
-        # trailing references).
-        density_min = (
-            _DENSITY_MIN_EDGE_PAGE if (i == 0 or i == limit - 1) else _DENSITY_MIN
-        )
-        if density < density_min:
-            findings.append(
-                f"density={density:.2f} < {density_min} (page is mostly empty)"
-            )
+        # The LAST page is a trailing tail (a few overflow reference
+        # lines) and is legitimately near-empty — not a layout defect;
+        # skip the too-empty check for it. The first page (title block)
+        # is merely sparse, so it keeps the lenient edge floor.
+        is_last = (i == limit - 1)
+        if not is_last:
+            density_min = _DENSITY_MIN_EDGE_PAGE if i == 0 else _DENSITY_MIN
+            if density < density_min:
+                findings.append(
+                    f"density={density:.2f} < {density_min} (page is mostly empty)"
+                )
         if density > _DENSITY_MAX:
             findings.append(
                 f"density={density:.2f} > {_DENSITY_MAX} (page is overcrowded)"
