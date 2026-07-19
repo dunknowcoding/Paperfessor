@@ -834,6 +834,37 @@ def _phase_plan(
             stage_goal="creative framing chosen", stage_complete=True,
             lessons=f"Creative framing: {framing_name}")
         return framing_name
+    # A technical report describes an ENGINEERING approach to build the
+    # named system — not a research method. The academic innovator (with
+    # its literature pre-survey) drifts wildly off-topic here (observed:
+    # a physics method proposed for a REST rate limiter). Ask for the
+    # concrete engineering approach instead.
+    if getattr(phd._settings, "paper_goal", "sota") == "technical_report":
+        approach = _call_llm_with_retry(
+            router, "innovator", "phd",
+            system=(
+                "You are a senior engineer scoping a technical report. Given "
+                "a system to build, name the concrete engineering approach "
+                "(the core technique/architecture) that the report will "
+                "describe. Stay strictly on the stated system; do NOT drift "
+                "into unrelated research. Answer on one line:\n"
+                "APPROACH: <concise engineering approach, max 10 words>"
+            ),
+            user=f"System to build: {direction}\n\nWrite the APPROACH line now.",
+            max_tokens=120, temperature=0.3,
+        )
+        m = re.search(r"APPROACH:\s*(.+)$", approach, re.I | re.M)
+        cand = m.group(1).strip()[:80] if m else ""
+        bad = (not cand or "?" in cand
+               or any(w in cand.lower() for w in
+                      ("please", "provide", "clarif", "as an ai", "too short")))
+        approach_name = (f"engineering design for {direction[:40]}"
+                         if bad else cand)
+        phd.append_doc_memo(
+            user_request=direction, method=approach_name, stage="plan",
+            stage_goal="engineering approach chosen", stage_complete=True,
+            lessons=f"Technical-report approach: {approach_name}")
+        return approach_name
     # Durable learning memory: recall distilled lessons relevant to
     # this direction so planning benefits from every past run.
     try:
@@ -3809,7 +3840,10 @@ def _section_system(section_id: str, direction: str, method: str) -> str:
         f"AI-style filler ('It is worth noting', 'In recent years', 'Many "
         f"researchers', 'In this work we'). Cite every claim. Every sentence "
         f"must be evidence-anchored. The paper targets a top-tier venue; the "
-        f"body must be dense. Write in Markdown under the section heading "
+        f"body must be dense. Put any equation longer than a few symbols "
+        f"on its OWN line as display math (a standalone line), never as a "
+        f"long inline $...$ expression mid-sentence. Write in Markdown "
+        f"under the section heading "
         f"given. Do not wrap the output in a Markdown code fence. Do not "
         f"include any local paths, project-internal names, or skill "
         f"references. Do not fabricate numbers; if the survey did not give "

@@ -38,6 +38,7 @@ NEURIPS_PREAMBLE_TEMPLATE = r"""\documentclass[sigconf,nonatbib]{acmart}
 \settopmatter{printacmref=false, printccs=true, printfolios=true}
 \setcopyright{none}
 \usepackage{balance}
+\usepackage{xurl}
 \begin{document}
 \title{%s}
 \author{Paperfessor Agent Group}
@@ -108,6 +109,8 @@ def _preamble_for_class(class_name: str) -> str:
         "\\usepackage[utf8]{inputenc}\n"
         "\\usepackage[T1]{fontenc}\n"
         "\\usepackage{graphicx}\n"
+        "\\usepackage{xurl}\n"
+        "\\usepackage{hyperref}\n"
         "\\title{%s}\n"
         "\\author{Paperfessor Agent Group}\n"
         "\\date{\\today}\n"
@@ -284,6 +287,20 @@ def _md_inline_to_tex(s: str) -> str:
     # overflows the margin. Replace with a sentinel restored to ``\$``
     # AFTER escaping (so the backslash is not itself escaped).
     s = re.sub(r"\$(?=\s?[\d])", "\x00DOLLAR\x00", s)
+    # Bare URLs (long DOIs etc.) do not line-break in text mode and
+    # overflow the column margin. Stash them as breakable \url{...}
+    # (xurl in the preamble lets them break anywhere). Do this BEFORE
+    # escaping so the URL's special chars are not mangled. Trailing
+    # sentence punctuation is kept outside the \url.
+    url_segments: list[str] = []
+
+    def stash_url(m: re.Match) -> str:
+        url = m.group(0).rstrip(".,;)")
+        trailing = m.group(0)[len(url):]
+        url_segments.append(url)
+        return f"\x00U{len(url_segments) - 1}\x00u" + trailing
+
+    s = re.sub(r"https?://[^\s\])}]+", stash_url, s)
     # Preserve inline math $...$ so the inner $ is not escaped.
     math_segments: list[str] = []
 
@@ -307,11 +324,16 @@ def _md_inline_to_tex(s: str) -> str:
     s = s.replace("\x00I", r"\emph{").replace("\x00i", "}")
     s = s.replace("\x00C", r"\texttt{").replace("\x00c", "}")
     s = s.replace("\x00H", r"\href{").replace("\x00H", r"\href{")
-    # Restore math segments.
+    # Restore math segments verbatim. (Over-long INLINE math is a rare
+    # pathological case; the section prompts discourage it and the
+    # \sloppy + emergencystretch preamble absorbs most of it.)
     def restore_math(m: re.Match) -> str:
-        idx = int(m.group(1))
-        return math_segments[idx]
+        return math_segments[int(m.group(1))]
     s = re.sub(r"\x00M(\d+)\x00m", restore_math, s)
+    # Restore stashed URLs as breakable \url{...}.
+    def restore_url(m: re.Match) -> str:
+        return r"\url{" + url_segments[int(m.group(1))] + "}"
+    s = re.sub(r"\x00U(\d+)\x00u", restore_url, s)
     # Restore protected currency as an escaped literal dollar.
     s = s.replace("\x00DOLLAR\x00", r"\$")
     return s
@@ -572,9 +594,13 @@ def md_to_tex_body(md: str, base_dir: Path | None = None) -> tuple[str, str]:
         # line that is mostly math and wrap it in display math.
         if _is_display_equation(line):
             flush_list()
-            body_lines.append(r"\[")
-            body_lines.append(line.rstrip().rstrip(","))
-            body_lines.append(r"\]")
+            eq = line.rstrip().rstrip(",")
+            # Shrink-to-fit: a long equation in a 2-column layout would
+            # overflow the column; \resizebox shrinks it only when it is
+            # wider than the column so it never crosses the margin.
+            body_lines.append(
+                r"\begin{center}\resizebox{\ifdim\width>\linewidth "
+                r"\linewidth\else\width\fi}{!}{$" + eq + r"$}\end{center}")
             body_lines.append("")
             continue
         # Plain paragraph
