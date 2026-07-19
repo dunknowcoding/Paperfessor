@@ -3968,10 +3968,17 @@ def _limitations_prompt(direction: str, method: str, evidence: list[Evidence],
                         workspace: Path | None = None) -> str:
     headline = _results_headline(workspace)
     return (
-        f"Write a 1-paragraph Limitations and Future Work section. "
-        f"Be honest: what does method={method!r} NOT solve? What datasets "
+        f"Write a Limitations and Future Work section (1-2 paragraphs). "
+        f"Ground it in the SPECIFIC theory you proposed: what assumption "
+        f"does {method!r} bake in that could fail, in which regime does its "
+        f"core mechanism break down, and what would a follow-up have to "
+        f"change to remove that assumption? The limitations must be the "
+        f"ones THIS method and THIS topic actually have — not generic "
+        f"caveats that could be pasted into any paper. Future work should "
+        f"follow directly from the named limitations. "
+        f"Be honest: what does {method!r} NOT solve? What datasets "
         f"are missing from the survey? What assumptions are not tested? "
-        f"No filler. 80-150 words. "
+        f"No filler. 90-170 words. "
         f"HONESTY CONSTRAINT: the empirical study covered ONLY the datasets "
         f"listed below — never describe the evaluation as spanning any other "
         f"benchmark. Unevaluated benchmarks may only be named as future work.\n\n"
