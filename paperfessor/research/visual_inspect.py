@@ -311,11 +311,14 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
                 f"line_gap_median={line_gap_median:.1f}pt not in "
                 f"[{_LINE_GAP_MIN_PT},{_LINE_GAP_MAX_PT}]"
             )
-        # Paragraph-gap checks are skipped on the final page: a
-        # trailing references/figures page has few, large, legitimate
-        # gaps that say nothing about body typesetting.
+        # Paragraph-gap checks are skipped on the final page (trailing
+        # references/figures) AND the title page: the title/author/
+        # affiliation block above the abstract creates a large,
+        # legitimate gap (~68pt) that says nothing about body
+        # typesetting and should not fail an otherwise-clean paper.
         is_last_page = (i == limit - 1)
-        if not is_last_page and para_gap_median and (
+        skip_para = is_last_page or is_title_page
+        if not skip_para and para_gap_median and (
             para_gap_median < _PARA_GAP_MIN_PT
             or para_gap_median > _PARA_GAP_MAX_PT
         ):
@@ -330,7 +333,7 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
         # gaps, and skip the too-far check entirely on pages carrying
         # a figure float (the float legitimately opens one large gap).
         has_figure_float = image_area > 0
-        if not is_last_page and para_total >= 5:
+        if not skip_para and para_total >= 5:
             close_frac = para_too_close / para_total
             far_frac = para_too_far / para_total
             if close_frac > _PARA_CLOSE_TOO_MANY:

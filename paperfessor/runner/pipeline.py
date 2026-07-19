@@ -4515,10 +4515,18 @@ def _paper_fallback(method: str, direction: str) -> str:
 
 
 def _parse_method(text: str) -> str | None:
+    # Accept the METHOD label even when the model wraps it in markdown
+    # (**METHOD:**), bullets (- METHOD:), or uses a dash separator —
+    # otherwise a good creative proposal is discarded and the pipeline
+    # falls back to a weak keyword method.
     for line in text.splitlines():
-        line = line.strip()
-        if line.upper().startswith("METHOD:"):
-            return _sanitize_method_name(line.split(":", 1)[1])
+        stripped = line.strip().lstrip("*#->• \t").strip()
+        m = re.match(r"(?:\*\*)?\s*METHOD\s*(?:\*\*)?\s*[:\-]\s*(.+)$",
+                     stripped, re.I)
+        if m:
+            name = _sanitize_method_name(m.group(1))
+            if name:
+                return name
     return None
 
 
