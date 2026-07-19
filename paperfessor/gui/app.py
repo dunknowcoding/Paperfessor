@@ -101,8 +101,13 @@ class _SettingsTab(_Tab):
         provider_box = QGroupBox("LLM provider")
         pf = QFormLayout(provider_box)
         self._provider = QComboBox()
-        for slug in ("minimax", "openai", "anthropic", "google", "ollama", "llamacpp", "custom"):
-            self._provider.addItem(slug, slug)
+        from paperfessor.llm.providers import list_providers
+        for info in list_providers():
+            self._provider.addItem(f"{info.name} ({info.slug})", info.slug)
+        # Select the configured provider.
+        idx = self._provider.findData(s.provider.value)
+        if idx >= 0:
+            self._provider.setCurrentIndex(idx)
         pf.addRow(QLabel("Provider:"), self._provider)
 
         self._model = QLineEdit(s.model)
@@ -113,6 +118,18 @@ class _SettingsTab(_Tab):
         pf.addRow(QLabel("MS model:"), self._ms)
         self._ug = QLineEdit(s.ug_model)
         pf.addRow(QLabel("UG model:"), self._ug)
+
+        # Switching provider defaults every model field to that
+        # provider's latest catalogue model, so the user always starts
+        # from a valid, current model and can then edit it.
+        def _on_provider_changed() -> None:
+            from paperfessor.llm.providers import get_provider_info
+            info = get_provider_info(self._provider.currentData() or "")
+            if info:
+                for w in (self._model, self._phd, self._ms, self._ug):
+                    w.setText(info.default_model)
+                self._base_url.setPlaceholderText(info.base_url_hint or "")
+        self._provider.currentIndexChanged.connect(lambda _i: _on_provider_changed())
 
         self._base_url = QLineEdit(s.base_url or "")
         pf.addRow(QLabel("Base URL:"), self._base_url)

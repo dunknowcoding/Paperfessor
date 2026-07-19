@@ -21,6 +21,14 @@ class ProviderName(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
+    # Additional cloud providers (OpenAI-compatible endpoints).
+    DEEPSEEK = "deepseek"
+    MOONSHOT = "moonshot"       # Kimi
+    QWEN = "qwen"               # Alibaba DashScope
+    DOUBAO = "doubao"           # ByteDance Volcengine
+    ZHIPU = "zhipu"             # GLM
+    XAI = "xai"                 # Grok
+    # Local
     OLLAMA = "ollama"
     LLAMACPP = "llamacpp"
     CUSTOM = "custom"

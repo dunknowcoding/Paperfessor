@@ -47,6 +47,52 @@ PROVIDER_CATALOG: dict[str, ProviderInfo] = {
         default_model="gemini-1.5-pro", requires_api_key=True,
         supports_local=False, notes="Google AI Studio / Vertex AI.",
     ),
+    "deepseek": ProviderInfo(
+        name="DeepSeek", slug="deepseek",
+        base_url_hint="https://api.deepseek.com/v1",
+        default_model="deepseek-chat", requires_api_key=True,
+        supports_local=False,
+        notes="DeepSeek API (OpenAI-compatible). Models: deepseek-chat, "
+              "deepseek-reasoner.",
+    ),
+    "moonshot": ProviderInfo(
+        name="Moonshot (Kimi)", slug="moonshot",
+        base_url_hint="https://api.moonshot.cn/v1",
+        default_model="kimi-k2-0905-preview", requires_api_key=True,
+        supports_local=False,
+        notes="Moonshot / Kimi API (OpenAI-compatible). Use "
+              "api.moonshot.ai/v1 for the international endpoint.",
+    ),
+    "qwen": ProviderInfo(
+        name="Qwen (Alibaba DashScope)", slug="qwen",
+        base_url_hint="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        default_model="qwen-max", requires_api_key=True,
+        supports_local=False,
+        notes="Alibaba Qwen via DashScope OpenAI-compatible endpoint. "
+              "Use dashscope-intl.aliyuncs.com for the international region.",
+    ),
+    "doubao": ProviderInfo(
+        name="Doubao (ByteDance Volcengine)", slug="doubao",
+        base_url_hint="https://ark.cn-beijing.volces.com/api/v3",
+        default_model="doubao-pro-32k", requires_api_key=True,
+        supports_local=False,
+        notes="ByteDance Doubao via Volcengine Ark (OpenAI-compatible). "
+              "The model is usually a provisioned endpoint id.",
+    ),
+    "zhipu": ProviderInfo(
+        name="Zhipu (GLM)", slug="zhipu",
+        base_url_hint="https://open.bigmodel.cn/api/paas/v4",
+        default_model="glm-4.5", requires_api_key=True,
+        supports_local=False,
+        notes="Zhipu GLM (OpenAI-compatible). Models: glm-4.5, glm-4-plus.",
+    ),
+    "xai": ProviderInfo(
+        name="xAI (Grok)", slug="xai",
+        base_url_hint="https://api.x.ai/v1",
+        default_model="grok-2-latest", requires_api_key=True,
+        supports_local=False,
+        notes="xAI Grok API (OpenAI-compatible).",
+    ),
     "ollama": ProviderInfo(
         name="Ollama (local)", slug="ollama",
         base_url_hint="http://localhost:11434", default_model="llama3.1",

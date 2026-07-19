@@ -42,7 +42,9 @@ _KEYRING_SERVICE: Final[str] = "Paperfessor"
 _USER_SLUG: Final[str] = "api-key"
 _FALLBACK_SALT: Final[bytes] = b"paperfessor.v1.fallback-salt"
 _KNOWN_PROVIDER_SLUGS: Final[tuple[str, ...]] = (
-    "minimax", "openai", "anthropic", "google", "ollama", "llamacpp", "custom",
+    "minimax", "openai", "anthropic", "google",
+    "deepseek", "moonshot", "qwen", "doubao", "zhipu", "xai",
+    "ollama", "llamacpp", "custom",
 )
 
 

@@ -306,10 +306,24 @@ class LLMRouter:
         return val if val is not None else self._settings.provider
 
     def _base_url_for_group(self, group: str) -> str | None:
-        """The base_url for an agent group, falling back to the global."""
+        """The base_url override for an agent group.
+
+        Returns the explicit per-agent ``{group}_base_url`` if set;
+        otherwise the global ``base_url`` ONLY when the group's provider
+        matches the global provider (they are configured together). When
+        a group uses a DIFFERENT provider, this returns None so
+        ``_build_kwargs`` falls back to that provider's catalog URL
+        rather than the global (e.g. MiniMax) endpoint.
+        """
         field = f"{group}_base_url" if group in ("phd", "ms", "ug") else ""
         val = getattr(self._settings, field, None) if field else None
-        return val if val else self._settings.base_url
+        if val:
+            return val
+        group_prov = getattr(self._settings, f"{group}_provider", None) \
+            if group in ("phd", "ms", "ug") else None
+        if group_prov is None or group_prov == self._settings.provider:
+            return self._settings.base_url
+        return None
 
     def _build_kwargs(
         self,
@@ -330,7 +344,17 @@ class LLMRouter:
             kwargs["max_tokens"] = request.max_tokens
         if api_key:
             kwargs["api_key"] = api_key
-        effective_base = base_url if base_url is not None else self._settings.base_url
+        # api_base precedence: the resolved override (``base_url`` already
+        # encodes the per-agent / provider-matched global URL, or None
+        # when the group's provider differs from the global one) -> the
+        # provider's catalog default -> the global setting. This lets
+        # selecting e.g. DeepSeek "just work" without the user pasting its
+        # endpoint URL, while never leaking the global MiniMax URL to a
+        # different provider.
+        effective_base = (
+            base_url or self._catalog_base_url(provider)
+            or self._settings.base_url
+        )
         if effective_base:
             kwargs["api_base"] = effective_base
         kwargs["timeout"] = self._settings.request_timeout_seconds
@@ -345,10 +369,31 @@ class LLMRouter:
                 kwargs["extra_body"] = {"thinking": {"type": "adaptive"}}
         return kwargs
 
+    # Providers reached through litellm's OpenAI-compatible path
+    # (``openai/<model>`` + api_base). Robust for any OpenAI-compatible
+    # endpoint regardless of whether litellm ships a native prefix.
+    # (MiniMax keeps its existing ``minimax/`` routing — the tested
+    # default — and is intentionally not listed here.)
+    _OPENAI_COMPATIBLE: frozenset = frozenset({
+        ProviderName.DEEPSEEK, ProviderName.MOONSHOT,
+        ProviderName.QWEN, ProviderName.DOUBAO, ProviderName.ZHIPU,
+        ProviderName.XAI, ProviderName.LLAMACPP, ProviderName.CUSTOM,
+    })
+
     def _model_string(self, provider: ProviderName, model: str) -> str:
         if "/" in model:
             return model
+        if provider in self._OPENAI_COMPATIBLE:
+            return f"openai/{model}"
         return f"{provider.value}/{model}"
+
+    def _catalog_base_url(self, provider: ProviderName) -> str | None:
+        try:
+            from paperfessor.llm.providers import get_provider_info
+            info = get_provider_info(provider.value)
+            return info.base_url_hint if info else None
+        except Exception:  # noqa: BLE001
+            return None
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:

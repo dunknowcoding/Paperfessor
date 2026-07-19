@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-__version__: str = "1.2.0"
+__version__: str = "1.3.0"
 __author__: str = "Paperfessor Project"
 __license__: str = "MIT"
 

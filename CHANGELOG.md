@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.0 (2026-07-19)
+
+More cloud providers and clearer model selection.
+
+### Added
+
+- **Cloud providers**: DeepSeek, Moonshot (Kimi), Qwen (Alibaba
+  DashScope), Doubao (ByteDance Volcengine), Zhipu (GLM), and xAI
+  (Grok), alongside MiniMax / OpenAI / Anthropic / Google and the local
+  Ollama / llama.cpp options. Each is an OpenAI-compatible endpoint the
+  router reaches at that provider's own base URL, with its API key in
+  the OS keychain. Per-agent providers still apply, so the PhD, MS, and
+  UG can each run on a different provider.
+- **Model selection in CLI and GUI**: choosing a provider defaults every
+  model field to that provider's latest catalogue model, which you can
+  then edit. The GUI provider list is populated from the catalogue (all
+  providers appear) and updates the model fields on change; the CLI
+  `run --provider <name>` does the same and lists valid providers on a
+  typo.
+
 ## 1.2.0 (2026-07-18)
 
 Smarter cognition, article-type flexibility, and cross-discipline

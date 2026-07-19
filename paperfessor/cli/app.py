@@ -187,8 +187,25 @@ def run(
         try:
             settings.provider = ProviderName(provider.lower())
         except ValueError:
-            err_console.print(f"[danger]x[/danger] unknown provider '{provider}'")
+            from paperfessor.llm.providers import list_providers
+            valid = ", ".join(p.slug for p in list_providers())
+            err_console.print(
+                f"[danger]x[/danger] unknown provider '{provider}'. "
+                f"Choose one of: {valid}")
             raise typer.Exit(code=1) from None
+        # Switching provider without an explicit model: default every
+        # model field to the new provider's latest catalogue model, and
+        # clear the (previous provider's) base_url so the new provider's
+        # endpoint is used.
+        if not (model or phd_model or ms_model or ug_model):
+            from paperfessor.llm.providers import get_provider_info
+            info = get_provider_info(settings.provider.value)
+            if info:
+                settings.model = info.default_model
+                settings.phd_model = info.default_model
+                settings.ms_model = info.default_model
+                settings.ug_model = info.default_model
+                settings.base_url = None
     if model:
         settings.model = model
     if phd_model:
