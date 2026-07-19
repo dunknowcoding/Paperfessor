@@ -809,17 +809,26 @@ def _phase_plan(
         framing = _call_llm_with_retry(
             router, "innovator", "phd",
             system=(
-                "You are an imaginative author planning a piece of creative "
-                "writing. Given a premise, choose a narrative framing in a "
-                "natural voice — NOT a research method. Reply on one line: "
-                "FRAMING: <genre + point of view + central device, max 10 words>"
+                "You are an imaginative author. You will be given a complete "
+                "story premise and must choose a narrative framing for it — "
+                "a genre, a point of view, and a central device. This is a "
+                "creative task, NOT a research method, and the premise is "
+                "already complete; never ask for more. Answer with exactly "
+                "one line:\nFRAMING: <genre; point of view; central device>"
             ),
-            user=f"Premise: {direction}\nGive the FRAMING line only.",
-            max_tokens=120, temperature=0.7,
+            user=(f"Story premise: {direction}\n\n"
+                  f"Write the single FRAMING line now."),
+            max_tokens=120, temperature=0.6,
         )
         m = re.search(r"FRAMING:\s*(.+)$", framing, re.I | re.M)
-        framing_name = (m.group(1).strip()[:80] if m
-                        else f"literary short story: {direction[:40]}")
+        cand = m.group(1).strip()[:80] if m else ""
+        # Reject a clarification/refusal masquerading as a framing.
+        bad = (not cand or "?" in cand
+               or any(w in cand.lower() for w in
+                      ("premise", "please", "share", "provide", "too short",
+                       "clarif", "as an ai")))
+        framing_name = (
+            f"literary short story ({direction[:40]})" if bad else cand)
         phd.append_doc_memo(
             user_request=direction, method=framing_name, stage="plan",
             stage_goal="creative framing chosen", stage_complete=True,
@@ -3301,6 +3310,11 @@ def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
     defects: list[str] = []
     body, _, refs_block = paper_md.partition("## References")
     lowered = body.lower()
+    # Creative writing (chaptered prose, no References section) has no
+    # references or academic citations — skip those checks for it. The
+    # internal-wording / privacy checks still apply.
+    is_creative = ("## References" not in paper_md
+                   and re.search(r"^## Chapter\b", paper_md, re.M) is not None)
     # Safeguard 1 — internal/process wording and private artifacts.
     for banned in ("the ms ", "the ug ", "master's student", "undergraduate",
                    "paperfessor", "what changed", "doc_memo", "article_memo",
@@ -3393,19 +3407,21 @@ def _whole_paper_defects(paper_md: str, workspace: Path) -> list[str]:
         fig = workspace / "paper" / "body" / m.group(1)
         if not fig.is_file():
             defects.append(f"figure reference {m.group(1)} points to no file")
-    # Author-year citations in the body must appear in References.
-    surnames_in_refs = set(
-        re.findall(r"^-\s+(\S+)\s+et al\.", refs_block, re.M)
-    )
-    cited = set(re.findall(r"\(([A-Z][a-zA-Z\-']+) et al\.,? \d{4}\)", body))
-    for name in sorted(cited):
-        if name not in surnames_in_refs:
-            defects.append(
-                f"body cites ({name} et al.) but the References list has "
-                f"no such entry"
-            )
+    # Author-year citations in the body must appear in References
+    # (academic papers only — creative writing has neither).
+    if not is_creative:
+        surnames_in_refs = set(
+            re.findall(r"^-\s+(\S+)\s+et al\.", refs_block, re.M)
+        )
+        cited = set(re.findall(r"\(([A-Z][a-zA-Z\-']+) et al\.,? \d{4}\)", body))
+        for name in sorted(cited):
+            if name not in surnames_in_refs:
+                defects.append(
+                    f"body cites ({name} et al.) but the References list has "
+                    f"no such entry"
+                )
     n_refs = len([l for l in refs_block.splitlines() if l.startswith("- ")])
-    if n_refs < 10:
+    if not is_creative and n_refs < 10:
         defects.append(f"only {n_refs} references (venue norm is 18+)")
     return defects
 

@@ -281,3 +281,12 @@ def test_bounded_memory_caps_prompt_cost():
     assert "older memory omitted" in out
     # keeps whole leading lines
     assert out.startswith("lesson 0:")
+
+
+def test_creative_writing_skips_reference_checks(tmp_path):
+    from paperfessor.runner.pipeline import _whole_paper_defects
+    md = ("# The Lighthouse\n\n## Chapter 1\n\nThe kettle was older than the "
+          "marriage; Mira watched the grey sea and remembered.\n\n"
+          "## Chapter 2\n\nThe bottle held a single folded page.\n")
+    # No References section, no citations expected — must be clean.
+    assert _whole_paper_defects(md, tmp_path) == []
