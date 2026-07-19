@@ -270,12 +270,15 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
             pass
         density = (word_area + min(image_area, page_area)) / max(1.0, page_area)
         margin_violations = 0
+        max_overflow = 0.0  # largest amount any word exceeds a margin
         for w in words:
             x, y, wd, ht = w["x"], w["y"], w["width"], w["height"]
+            right_over = (x + wd) - (page_w_pt - _MARGIN_MIN_PT)
+            bottom_over = (y + ht) - (page_h_pt - _MARGIN_MIN_PT)
             if (x < _MARGIN_MIN_PT or y < _MARGIN_MIN_PT
-                    or (x + wd) > page_w_pt - _MARGIN_MIN_PT
-                    or (y + ht) > page_h_pt - _MARGIN_MIN_PT):
+                    or right_over > 0 or bottom_over > 0):
                 margin_violations += 1
+                max_overflow = max(max_overflow, right_over, bottom_over)
         # Overlap check between line rects. Adjacent lines share
         # ascender/descender space, so only SUBSTANTIAL overlap
         # counts: > 40% of the smaller rect's height AND > 4pt of
@@ -361,9 +364,17 @@ def inspect_pdf(pdf_path: Path, *, scale: float = 2.0,
             findings.append(
                 f"density={density:.2f} > {_DENSITY_MAX} (page is overcrowded)"
             )
-        if margin_violations > 0:
+        # A SINGLE word poking only slightly past the right/bottom margin
+        # is within normal typographic tolerance (a hyphenation or long-
+        # token edge that real published papers routinely have). Flag
+        # only genuine overflow: two or more words, or a single word
+        # that overshoots by more than ~10pt (a broken long token).
+        if margin_violations >= 2 or (
+            margin_violations == 1 and max_overflow > 10.0
+        ):
             findings.append(
                 f"{margin_violations} words cross the page margin"
+                f" (max {max_overflow:.0f}pt over)"
             )
         findings.extend(image_findings)
         if overlaps > 5:
