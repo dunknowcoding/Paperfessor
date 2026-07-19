@@ -333,17 +333,21 @@ def run(
         paper_path=None,
     )
 
+    goal = getattr(settings, "paper_goal", "sota")
     try:
         method = _phase_plan(phd, router, direction, budgets["plan"], ms=ms)
         result.method = method
-        _phase_survey(phd, ms, router, direction, method, budgets["survey"])
+        # Creative writing needs no literature survey — skip it.
+        if goal != "creative":
+            _phase_survey(phd, ms, router, direction, method, budgets["survey"])
         # Active review: between phases the PhD inspects both workers
         # and decides continue / add_more / pause / stop. The
         # recommendation is persisted to doc_memo.
         _phd_review_workers(phd, ms, ug)
-        # A literature review has no computational experiment — skip the
-        # code phase entirely (the write phase uses a review structure).
-        if getattr(settings, "paper_goal", "sota") != "review":
+        # Reviews and creative writing have no computational experiment —
+        # skip the code phase entirely (the write phase uses a structure
+        # suited to the article type).
+        if getattr(settings, "paper_goal", "sota") not in ("review", "creative"):
             _phase_code(phd, ug, router, direction, method, budgets["code"])
             _phd_review_workers(phd, ms, ug)
         paper_path = _phase_write(phd, router, direction, method, budgets["write"], ms=ms, ug=ug)
@@ -1870,6 +1874,63 @@ def _section_plan(
     """
     ev = evidence
     ws = workspace
+    if goal == "creative":
+        # Narrative / creative writing: NO abstract, references, or
+        # experiments — chaptered prose only. ``direction`` is the
+        # premise; ``method`` is the chosen angle/genre framing.
+        return [
+            ("opening", "Chapter 1",
+             f"Write Chapter 1 (600-900 words) of a work of creative "
+             f"writing based on this premise: {direction!r}. Establish "
+             f"voice, setting, and the central character; end on a hook. "
+             f"Vivid, human prose — show, don't tell. No headings inside "
+             f"the chapter, no meta-commentary.", 2000),
+            ("rising", "Chapter 2",
+             f"Write Chapter 2 (600-900 words), continuing the story from "
+             f"Chapter 1. Deepen the conflict and raise the stakes. Keep "
+             f"the established voice and characters consistent.", 2000),
+            ("turn", "Chapter 3",
+             f"Write Chapter 3 (600-900 words): a turning point or "
+             f"complication that changes the character's situation. "
+             f"Consistent voice and continuity with Chapters 1-2.", 2000),
+            ("resolution", "Chapter 4",
+             f"Write Chapter 4 (600-900 words): bring the arc to a "
+             f"satisfying close (or a deliberate, earned open ending). "
+             f"Pay off the hook from Chapter 1.", 2000),
+        ]
+    if goal == "technical_report":
+        has = has_results
+        plan: list[tuple[str, str, str, int]] = [
+            ("summary", "Executive Summary",
+             f"Write a 120-180 word executive summary of a technical report "
+             f"on {direction!r}: the problem, the approach ({method!r}), and "
+             f"the outcome. Concrete, no hype.", 600),
+            ("background", "1. Background and Objectives",
+             f"State the problem, the context, and the concrete objectives "
+             f"/requirements the work addresses for {direction!r}.", 1600),
+            ("design", "2. System Design",
+             f"Describe the design of {method!r}: the architecture, the key "
+             f"components, and the design decisions with their rationale and "
+             f"trade-offs. Use precise engineering language.", 2400),
+            ("implementation", "3. Implementation",
+             f"Describe the implementation: the stack, the notable technical "
+             f"details, and how the design maps to what was built.", 1800),
+        ]
+        if has:
+            plan.append((
+                "evaluation", "4. Evaluation",
+                _experiments_prompt(direction, method, ev, ws), 2600))
+        else:
+            plan.append((
+                "validation", "4. Validation",
+                f"Describe how {method!r} was validated: the criteria, the "
+                f"checks performed, and the observed behavior. State plainly "
+                f"what was NOT measured; fabricate no numbers.", 1800))
+        plan.append((
+            "conclusion", "5. Conclusion and Next Steps",
+            f"Summarize what was delivered for {direction!r} and the concrete "
+            f"next steps. No fabricated results.", 800))
+        return plan
     if goal == "review":
         n = len(ev)
         return [
@@ -2393,6 +2454,10 @@ def _phase_write(
     reference_lines: list[str] = []
     seen: set[str] = set()
     ref_count = 0
+    # Creative writing has NO references — empty the evidence so the
+    # citation block and References section are skipped entirely.
+    if goal == "creative":
+        evidence = []
     # PRESTIGE ORDER: the best papers cite predominantly high-impact,
     # top-venue work. Order the reference list by citation count (a
     # robust prestige proxy) so leading venues surface first, and so a
@@ -2508,9 +2573,10 @@ def _phase_write(
                 reference_lines.append(ref_text)
                 ref_count += 1
                 break
-    if ref_count == 0:
+    if ref_count == 0 and goal != "creative":
         # Last-resort: emit a single "no papers found" line so the
-        # References section is non-empty.
+        # References section is non-empty. (Creative writing has no
+        # references at all — leave the list empty.)
         reference_lines.append(
             "- (No externally-indexed paper was retrievable in the survey window; "
             "all prior-art citations in the body reference the survey log.)"
@@ -3178,9 +3244,11 @@ def _reassemble_paper(
     for block in appendix_blocks:
         parts.append(block)
         parts.append("")
-    parts.append("## References")
-    parts.append("")
-    parts.extend(reference_lines)
+    # No References section for creative writing (empty reference list).
+    if reference_lines:
+        parts.append("## References")
+        parts.append("")
+        parts.extend(reference_lines)
     return "\n".join(parts)
 
 

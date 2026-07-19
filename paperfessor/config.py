@@ -177,8 +177,14 @@ class Settings(BaseSettings):
     #   experiments - empirical study; report what happens
     #   review      - literature review / survey; no proposed method
     #   exploration - open-ended; report findings as-is
+    #   technical_report - engineering/system write-up (Summary, Design,
+    #                      Implementation, Evaluation); experiments if data
+    #   creative         - narrative/creative writing (a story or novel
+    #                      chapter): NO venue, references, abstract, or
+    #                      experiments — chaptered prose only
     paper_goal: Literal[
-        "sota", "comparison", "experiments", "review", "exploration"
+        "sota", "comparison", "experiments", "review", "exploration",
+        "technical_report", "creative"
     ] = "sota"
 
     # --- Coordination (full user control via CLI --flags / GUI) -----------
