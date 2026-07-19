@@ -430,10 +430,15 @@ def rows_to_markdown(rows: list[MetricRow], *, include_time: bool = False) -> st
         # Any method run with multiple seeds prints its ± even at
         # 0.000, keeping the table consistent with the k = 3 protocol.
         multi = r.n_seeds > 1
+        # Keep the ± confidence interval on the HEADLINE metric (F1)
+        # only; a ± on every column doubles their width and can force
+        # the whole table to shrink below the readable-font floor (a
+        # 3.9pt results table was observed). Other columns show the
+        # mean; the k = 3 seed protocol / CI is stated in Section 4.3.
         f1 = _cell(r.dataset, "f1", r.f1_mean, r.f1_ci, multi)
         prec = _cell(r.dataset, "precision", r.precision_mean, 0.0, False)
         rec = _cell(r.dataset, "recall", r.recall_mean, 0.0, False)
-        roc = _cell(r.dataset, "auroc", r.auroc_mean, r.auroc_ci, multi)
+        roc = _cell(r.dataset, "auroc", r.auroc_mean, 0.0, False)
         prc = _cell(r.dataset, "auprc", r.auprc_mean, 0.0, False)
         time_cell = (
             f" {r.seconds / max(1, r.n_seeds):.2f} |" if include_time else ""
